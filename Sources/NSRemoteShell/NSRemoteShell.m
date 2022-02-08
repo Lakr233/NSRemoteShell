@@ -6,7 +6,7 @@
 //
 
 #import "NSRemoteShell.h"
-#import "NSRemoteEvent.h"
+#import "TSEventLoop.h"
 #import "NSRemoteChannel.h"
 
 #import "GenericHeaders.h"
@@ -29,9 +29,10 @@
 
 @property(nonatomic, nullable, assign) CFSocketRef associatedSocket;
 @property(nonatomic, nullable, assign) LIBSSH2_SESSION *associatedSession;
+@property(nonatomic, nullable, strong) dispatch_source_t associatedSocketSource;
 
-@property(nonatomic, nonnull) NSMutableArray<NSRemoteChannel*> *associatedChannel;
-@property(nonatomic, nonnull) NSMutableArray *requestInvokations;
+@property(nonatomic, nonnull, strong) NSMutableArray<NSRemoteChannel*> *associatedChannel;
+@property(nonatomic, nonnull, strong) NSMutableArray *requestInvokations;
 
 @end
 
@@ -39,7 +40,7 @@
 
 #pragma mark init
 
--(instancetype)init {
+- (instancetype)init {
     self = [super init];
     self.remoteHost = @"";
     self.remotePort = @(22);
@@ -54,31 +55,31 @@
     
     self.requestInvokations = [[NSMutableArray alloc] init];
     
-    [[NSRemoteEventLoop sharedLoop] delegatingRemoteWith:self];
+    [[TSEventLoop sharedLoop] delegatingRemoteWith:self];
     
     return self;
 }
 
--(void)dealloc {
+- (void)dealloc {
     NSLog(@"shell object at %p deallocating", self);
     [self uncheckedConcurrencyDisconnect];
 }
 
--(instancetype)setupConnectionHost:(NSString *)targetHost {
+- (instancetype)setupConnectionHost:(NSString *)targetHost {
     @synchronized(self) {
         [self setRemoteHost:targetHost];
     }
     return self;
 }
 
--(instancetype)setupConnectionPort:(NSNumber *)targetPort {
+- (instancetype)setupConnectionPort:(NSNumber *)targetPort {
     @synchronized(self) {
         [self setRemotePort:targetPort];
     }
     return self;
 }
 
--(instancetype)setupConnectionTimeout:(NSNumber *)timeout {
+- (instancetype)setupConnectionTimeout:(NSNumber *)timeout {
     @synchronized(self) {
         [self setOperationTimeout:timeout];
     }
@@ -87,12 +88,13 @@
 
 // MARK: - EVENT LOOP
 
--(void)eventLoopHandleMessage {
+- (void)handleRequestsIfNeeded {
     @synchronized (self.requestInvokations) {
         for (dispatch_block_t invocation in self.requestInvokations) {
             if (invocation) { invocation(); }
         }
         [self.requestInvokations removeAllObjects];
+        [self uncheckedConcurrencyDispatchSourceMakeDecision];
         for (NSRemoteChannel *channelObject in [self.associatedChannel copy]) {
             if (![self uncheckedConcurrencyValidateChannel:channelObject]) {
                 continue;
@@ -101,12 +103,17 @@
             // channle close will happen inside the validate
             [self uncheckedConcurrencyValidateChannel:channelObject];
         }
+        [self uncheckedConcurrencyDispatchSourceMakeDecision];
     }
+}
+
+- (void)explicitRequestStatusPickup {
+    [[TSEventLoop sharedLoop] explicitRequestHandle];
 }
 
 // MARK: - API
 
--(instancetype)requestConnectAndWait {
+- (instancetype)requestConnectAndWait {
     dispatch_semaphore_t sem = dispatch_semaphore_create(0);
     __weak typeof(self) magic = self;
     @synchronized (self.requestInvokations) {
@@ -116,11 +123,12 @@
         } copy];
         [self.requestInvokations addObject:block];
     }
+    [[TSEventLoop sharedLoop] explicitRequestHandle];
     dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
     return self;
 }
 
--(instancetype)requestDisconnectAndWait {
+- (instancetype)requestDisconnectAndWait {
     dispatch_semaphore_t sem = dispatch_semaphore_create(0);
     __weak typeof(self) magic = self;
     @synchronized (self.requestInvokations) {
@@ -130,11 +138,12 @@
         } copy];
         [self.requestInvokations addObject:block];
     }
+    [[TSEventLoop sharedLoop] explicitRequestHandle];
     dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
     return self;
 }
 
--(instancetype)authenticateWith:(NSString *)username andPassword:(NSString *)password {
+- (instancetype)authenticateWith:(NSString *)username andPassword:(NSString *)password {
     dispatch_semaphore_t sem = dispatch_semaphore_create(0);
     __weak typeof(self) magic = self;
     @synchronized (self.requestInvokations) {
@@ -145,11 +154,12 @@
         } copy];
         [self.requestInvokations addObject:block];
     }
+    [[TSEventLoop sharedLoop] explicitRequestHandle];
     dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
     return self;
 }
 
--(instancetype)authenticateWith:(NSString *)username andPublicKey:(NSString *)publicKey andPrivateKey:(NSString *)privateKey andPassword:(NSString *)password {
+- (instancetype)authenticateWith:(NSString *)username andPublicKey:(NSString *)publicKey andPrivateKey:(NSString *)privateKey andPassword:(NSString *)password {
     dispatch_semaphore_t sem = dispatch_semaphore_create(0);
     __weak typeof(self) magic = self;
     @synchronized (self.requestInvokations) {
@@ -162,11 +172,12 @@
         } copy];
         [self.requestInvokations addObject:block];
     }
+    [[TSEventLoop sharedLoop] explicitRequestHandle];
     dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
     return self;
 }
 
--(instancetype)executeRemote:(NSString *)command
+- (instancetype)executeRemote:(NSString *)command
               withExecTimeout:(NSNumber *)timeoutSecond
                    withOutput:(void (^)(NSString * _Nonnull))responseDataBlock
       withContinuationHandler:(BOOL (^)(void))continuationBlock
@@ -183,11 +194,12 @@
         } copy];
         [self.requestInvokations addObject:block];
     }
+    [[TSEventLoop sharedLoop] explicitRequestHandle];
     dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
     return self;
 }
 
--(instancetype)openShellWithTerminal:(nullable NSString*)terminalType
+- (instancetype)openShellWithTerminal:(nullable NSString*)terminalType
                     withTermianlSize:(nullable CGSize (^)(void))requestTermianlSize
                        withWriteData:(nullable NSString* (^)(void))requestWriteData
                           withOutput:(void (^)(NSString * _Nonnull))responseDataBlock
@@ -206,13 +218,14 @@
         } copy];
         [self.requestInvokations addObject:block];
     }
+    [[TSEventLoop sharedLoop] explicitRequestHandle];
     dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
     return self;
 }
 
 // MARK: - UNCHECKED CONCURRENCY
 
--(void)uncheckedConcurrencyConnect {
+- (void)uncheckedConcurrencyConnect {
     [self uncheckedConcurrencyDisconnect];
     NSArray *candidateHosts = [GenericNetworking resolveIpAddressesFor:self.remoteHost];
     BOOL constructCompleted = NO;
@@ -276,7 +289,7 @@
     NSLog(@"constructed libssh2 session to %@ with %@", self.remoteHost, self.resolvedRemoteIpAddress);
 }
 
--(void)uncheckedConcurrencyDisconnect {
+- (void)uncheckedConcurrencyDisconnect {
     for (NSRemoteChannel *channel in [self.associatedChannel copy]) {
         [channel uncheckedConcurrencyChannelCloseIfNeeded];
     }
@@ -299,21 +312,47 @@
     self.remoteFingerPrint = NULL;
 }
 
--(void)uncheckedConcurrencySessionCloseFor:(LIBSSH2_SESSION*)session {
+- (void)uncheckedConcurrencyDispatchSourceMakeDecision {
+    if ([self.associatedChannel count] > 0) {
+        if (!self.associatedSocketSource) {
+            dispatch_source_t socketDataSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ,
+                                                                        CFSocketGetNative(self.associatedSocket),
+                                                                        NULL,
+                                                                        dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0));
+            if (!socketDataSource) {
+                NSLog(@"failed to create dispatch source for socket");
+                [self uncheckedConcurrencyDisconnect];
+                return;
+            }
+            dispatch_source_set_event_handler(socketDataSource, ^{
+                [[TSEventLoop sharedLoop] explicitRequestHandle];
+            });
+            dispatch_resume(socketDataSource);
+            self.associatedSocketSource = socketDataSource;
+        }
+    } else {
+        if (self.associatedSocketSource) {
+            dispatch_source_cancel(self.associatedSocketSource);
+            self.associatedSocketSource = NULL;
+        }
+    }
+}
+
+- (void)uncheckedConcurrencySessionCloseFor:(LIBSSH2_SESSION*)session {
     if (!session) return;
     while (libssh2_session_disconnect(session, "closed by client") == LIBSSH2_ERROR_EAGAIN) {};
     while (libssh2_session_free(session) == LIBSSH2_ERROR_EAGAIN) {};
     self.associatedSession = NULL;
 }
 
--(void)uncheckedConcurrencySessionSetTimeoutWith:(LIBSSH2_SESSION*)session
+- (void)uncheckedConcurrencySessionSetTimeoutWith:(LIBSSH2_SESSION*)session
                                   andTimeoutValue:(double)timeoutValue
 {
     if (!session) return;
     libssh2_session_set_timeout(session, timeoutValue);
 }
 
--(BOOL)uncheckedConcurrencyConstructConnectionAndReturnSuccess:(id)withCandidateAddressData {
+- (BOOL)uncheckedConcurrencyConstructConnectionAndReturnSuccess:(id)withCandidateAddressData {
     int port = [self.remotePort integerValue];
     double timeout = [self.operationTimeout doubleValue];
     NSMutableString *resolvedIpAddress = [[NSMutableString alloc] init];
@@ -329,7 +368,7 @@
     return YES;
 }
 
--(BOOL)uncheckedConcurrencyValidateSession
+- (BOOL)uncheckedConcurrencyValidateSession
 {
     do {
         if (!self.associatedSocket) { break; }
@@ -341,7 +380,7 @@
     return NO;
 }
 
--(void)uncheckedConcurrencyChannelCleanup {
+- (void)uncheckedConcurrencyChannelCleanup {
     NSMutableArray *newArray = [[NSMutableArray alloc] init];
     for (NSRemoteChannel *channel in [self.associatedChannel copy]) {
         // will be closed if not valid
@@ -351,7 +390,7 @@
     self.associatedChannel = newArray;
 }
 
--(BOOL)uncheckedConcurrencyValidateChannel:(NSRemoteChannel*)channel
+- (BOOL)uncheckedConcurrencyValidateChannel:(NSRemoteChannel*)channel
 {
     do {
         if (![self uncheckedConcurrencyValidateSession]) {
@@ -370,13 +409,13 @@
     return NO;
 }
 
--(BOOL)uncheckedConcurrencyValidateRawChannel:(LIBSSH2_CHANNEL*)channel
+- (BOOL)uncheckedConcurrencyValidateRawChannel:(LIBSSH2_CHANNEL*)channel
 {
     if (!channel) { return NO; }
     return YES;
 }
 
--(void)uncheckedConcurrencyAuthenticateWith:(NSString *)username
+- (void)uncheckedConcurrencyAuthenticateWith:(NSString *)username
                                  andPassword:(NSString *)password
 {
     if (![self uncheckedConcurrencyValidateSession]) {
@@ -402,7 +441,7 @@
     }
 }
 
--(void)uncheckedConcurrencyAuthenticateWith:(NSString *)username
+- (void)uncheckedConcurrencyAuthenticateWith:(NSString *)username
                                 andPublicKey:(NSString *)publicKey
                                andPrivateKey:(NSString *)privateKey
                                  andPassword:(NSString *)password
@@ -434,7 +473,7 @@
     }
 }
 
--(void)uncheckedConcurrencyExecuteRemote:(NSString *)command
+- (void)uncheckedConcurrencyExecuteRemote:(NSString *)command
                           withExecTimeout:(NSNumber *)timeoutSecond
                                withOutput:(void (^)(NSString * _Nonnull))responseDataBlock
                   withContinuationHandler:(BOOL (^)(void))continuationBlock
@@ -498,7 +537,7 @@
     [self.associatedChannel addObject:channelObject];
 }
 
--(void)uncheckedConcurrencyOpenShellWithTerminal:(nullable NSString*)terminalType
+- (void)uncheckedConcurrencyOpenShellWithTerminal:(nullable NSString*)terminalType
                                 withTermianlSize:(nullable CGSize (^)(void))requestTermianlSize
                                    withWriteData:(nullable NSString* (^)(void))requestWriteData
                                       withOutput:(void (^)(NSString * _Nonnull))responseDataBlock

@@ -1,5 +1,5 @@
 //
-//  NSRemoteEventLoop.h
+//  TSEventLoop.h
 //  
 //
 //  Created by Lakr Aream on 2022/2/5.
@@ -12,22 +12,20 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface NSRemoteShellRef : NSObject
+@interface NSRemoteShellWeakReference : NSObject
 
 @property (nonatomic, readwrite, weak) NSRemoteShell* representedObject;
 
--(instancetype)initWith:(NSRemoteShell*)remoteObject;
+- (instancetype)initWith:(NSRemoteShell*)remoteObject;
 
 @end
 
-@interface NSRemoteEventLoop : NSObject
+@interface TSEventLoop : NSObject <NSPortDelegate>
 
 +(id)sharedLoop;
 
--(void)delegatingRemoteWith:(NSRemoteShell*)object;
-
--(void)startup;
--(void)terminate;
+- (void)explicitRequestHandle;
+- (void)delegatingRemoteWith:(NSRemoteShell*)object;
 
 @end
 

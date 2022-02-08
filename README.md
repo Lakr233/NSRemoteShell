@@ -36,12 +36,12 @@ NSRemoteShell()
 To connect, call setup function to set host and port. Class is designed with Swift function-like syntax chain.
 
 ```
--(instancetype)setupConnectionHost:(nonnull NSString *)targetHost;
--(instancetype)setupConnectionPort:(nonnull NSNumber *)targetPort;
--(instancetype)setupConnectionTimeout:(nonnull NSNumber *)timeout;
+- (instancetype)setupConnectionHost:(nonnull NSString *)targetHost;
+- (instancetype)setupConnectionPort:(nonnull NSNumber *)targetPort;
+- (instancetype)setupConnectionTimeout:(nonnull NSNumber *)timeout;
 
--(instancetype)requestConnectAndWait;
--(instancetype)requestDisconnectAndWait;
+- (instancetype)requestConnectAndWait;
+- (instancetype)requestDisconnectAndWait;
 ```
 
 There is two authenticate method provided. Authenticate is required after connect.
@@ -49,9 +49,9 @@ There is two authenticate method provided. Authenticate is required after connec
 **Do not change username when authenticateing the same session.**
 
 ```
--(instancetype)authenticateWith:(nonnull NSString *)username
+- (instancetype)authenticateWith:(nonnull NSString *)username
                      andPassword:(nonnull NSString *)password;
--(instancetype)authenticateWith:(NSString *)username
+- (instancetype)authenticateWith:(NSString *)username
                             andPublicKey:(nullable NSString *)publicKey
                             andPrivateKey:(NSString *)privateKey
                              andPassword:(nullable NSString *)password;
@@ -71,40 +71,61 @@ For various session property, see property list.
 Request either command channel or shell channel with designated API, and do not access unexposed values. It may break the ARC or crash the app.
 
 ```
--(instancetype)executeRemote:(NSString*)command
+- (instancetype)executeRemote:(NSString*)command
              withExecTimeout:(NSNumber*)timeoutSecond
                   withOutput:(nullable void (^)(NSString*))responseDataBlock
      withContinuationHandler:(nullable BOOL (^)(void))continuationBlock;
 
--(instancetype)openShellWithTerminal:(nullable NSString*)terminalType
+- (instancetype)openShellWithTerminal:(nullable NSString*)terminalType
                     withTermianlSize:(nullable CGSize (^)(void))requestTermianlSize
                        withWriteData:(nullable NSString* (^)(void))requestWriteData
                           withOutput:(void (^)(NSString * _Nonnull))responseDataBlock
              withContinuationHandler:(BOOL (^)(void))continuationBlock;
 ```
 
-## Thread Safe
-
-We implemented thread safe by using NSEventLoop to serialize single NSRemoteShell instance. Multiple NSRemoteShell object will be executed in parallel. Channel operations will be executed in serial for
-each NSRemoteShell.
+On execution, once your status is changed, to apply your status quickly, call explicitRequestStatusPickup(). Take an example, when shouldTerminate changes, call this function to terminate this channel immediately or wait for the event loop to pick up on a guaranteed schedule.
 
 ```
-@interface NSRemoteEventLoop : NSObject
+- (void)explicitRequestStatusPickup;
+```
+
+## Thread Safe
+
+We implemented thread safe by using NSEventLoop to serialize single NSRemoteShell instance. Multiple NSRemoteShell object will be executed in parallel. Channel operations will be executed in serial for each NSRemoteShell.
+
+```
+@interface TSEventLoop : NSObject
 
 +(id)sharedLoop;
 
--(void)delegatingRemoteWith:(NSRemoteShell*)object;
-
--(void)startup;
--(void)terminate;
+- (void)explicitRequestHandle;
+- (void)delegatingRemoteWith:(NSRemoteShell*)object;
 
 @end
+```
+
+The event loop will guarantee status pickup is thread safe, called several times per second. To improve the performance and user experience, we use a dispatch source of your session's socket to trigger the event loop handler when you have at least one channel opened when data arrived. Check following code to see how it works.
+
+```
+- (void)uncheckedConcurrencyDispatchSourceMakeDecision
+```
+
+All event loop will call a NSRemoteShell objects' handleRequestsIfNeeded method, we deal with control blocks first, and then iterate over all channel to see if data available.
+
+```
+for (dispatch_block_t invocation in self.requestInvokations) {
+    if (invocation) { invocation(); }
+}
+[self.requestInvokations removeAllObjects];
+for (NSRemoteChannel *channelObject in [self.associatedChannel copy]) {
+    [channelObject insanityUncheckedEventLoop];
+}
 ```
 
 ARC will take place to disconnect if a shell object is no longer holds. You can close the session manually or let ARC handle it.
 
 ```
--(void)dealloc {
+- (void)dealloc {
     NSLog(@"shell object at %p deallocating", self);
     [self uncheckedConcurrencyDisconnect];
 }

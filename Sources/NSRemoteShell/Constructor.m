@@ -7,7 +7,7 @@
 
 #import "Constructor.h"
 #import "GenericHeaders.h"
-#import "NSRemoteEvent.h"
+#import "TSEventLoop.h"
 
 #import <Foundation/Foundation.h>
 
@@ -19,14 +19,13 @@ __attribute__((constructor)) void libssh2_constructor() {
         kLIBSSH2_CONSTRUCTOR_SUCCESS = 1;
         NSLog(@"libssh2 init success");
     }
-    [[NSRemoteEventLoop sharedLoop] startup];
+    [TSEventLoop sharedLoop];
 }
 
 __attribute__((destructor)) void libssh2_destructor() {
     if (kLIBSSH2_CONSTRUCTOR_SUCCESS) {
         libssh2_exit();
     }
-    [[NSRemoteEventLoop sharedLoop] terminate];
 }
 
 int libssh2_init_check() {

@@ -25,37 +25,38 @@ NS_ASSUME_NONNULL_BEGIN
 
 #pragma mark initializer
 
--(instancetype)init;
--(instancetype)setupConnectionHost:(nonnull NSString *)targetHost;
--(instancetype)setupConnectionPort:(nonnull NSNumber *)targetPort;
--(instancetype)setupConnectionTimeout:(nonnull NSNumber *)timeout;
+- (instancetype)init;
+- (instancetype)setupConnectionHost:(nonnull NSString *)targetHost;
+- (instancetype)setupConnectionPort:(nonnull NSNumber *)targetPort;
+- (instancetype)setupConnectionTimeout:(nonnull NSNumber *)timeout;
 
 #pragma mark event loop
 
--(void)eventLoopHandleMessage;
+- (void)handleRequestsIfNeeded;
+- (void)explicitRequestStatusPickup;
 
 #pragma mark connection
 
--(instancetype)requestConnectAndWait;
--(instancetype)requestDisconnectAndWait;
+- (instancetype)requestConnectAndWait;
+- (instancetype)requestDisconnectAndWait;
 
 #pragma mark authenticate
 
--(instancetype)authenticateWith:(nonnull NSString *)username
+- (instancetype)authenticateWith:(nonnull NSString *)username
                      andPassword:(nonnull NSString *)password;
--(instancetype)authenticateWith:(NSString *)username
+- (instancetype)authenticateWith:(NSString *)username
                             andPublicKey:(nullable NSString *)publicKey
                             andPrivateKey:(NSString *)privateKey
                              andPassword:(nullable NSString *)password;
 
 #pragma mark execution
 
--(instancetype)executeRemote:(NSString*)command
+- (instancetype)executeRemote:(NSString*)command
              withExecTimeout:(NSNumber*)timeoutSecond
                   withOutput:(nullable void (^)(NSString*))responseDataBlock
      withContinuationHandler:(nullable BOOL (^)(void))continuationBlock;
 
--(instancetype)openShellWithTerminal:(nullable NSString*)terminalType
+- (instancetype)openShellWithTerminal:(nullable NSString*)terminalType
                     withTermianlSize:(nullable CGSize (^)(void))requestTermianlSize
                        withWriteData:(nullable NSString* (^)(void))requestWriteData
                           withOutput:(void (^)(NSString * _Nonnull))responseDataBlock

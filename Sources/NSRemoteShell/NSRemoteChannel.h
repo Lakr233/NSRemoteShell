@@ -24,23 +24,23 @@ typedef CGSize (^NSRemoteChannelTerminalSizeBlock)(void);
 
 @property (nonatomic, readonly) BOOL channelCompleted;
 
--(instancetype)initWithRepresentedSession:(LIBSSH2_SESSION*)representedSession
+- (instancetype)initWithRepresentedSession:(LIBSSH2_SESSION*)representedSession
                     withRepresentedChanel:(LIBSSH2_CHANNEL*)representedChannel;
 
--(void)insanityUncheckedEventLoop;
+- (void)insanityUncheckedEventLoop;
 
--(void)onTermination:(dispatch_block_t)terminationHandler;
+- (void)onTermination:(dispatch_block_t)terminationHandler;
 
--(void)setRequestDataChain:(NSRemoteChannelRequestDataBlock _Nonnull)requestData;
--(void)setRecivedDataChain:(NSRemoteChannelReceiveDataBlock _Nonnull)receiveData;
--(void)setContinuationChain:(NSRemoteChannelContinuationBlock _Nonnull)continuation;
--(void)setTerminalSizeChain:(NSRemoteChannelTerminalSizeBlock _Nonnull)terminalSize;
+- (void)setRequestDataChain:(NSRemoteChannelRequestDataBlock _Nonnull)requestData;
+- (void)setRecivedDataChain:(NSRemoteChannelReceiveDataBlock _Nonnull)receiveData;
+- (void)setContinuationChain:(NSRemoteChannelContinuationBlock _Nonnull)continuation;
+- (void)setTerminalSizeChain:(NSRemoteChannelTerminalSizeBlock _Nonnull)terminalSize;
 
--(void)setChannelTimeoutWith:(double)timeoutValueFromNowInSecond;
--(void)setChannelTimeoutWithScheduled:(NSDate*)timeoutDate;
+- (void)setChannelTimeoutWith:(double)timeoutValueFromNowInSecond;
+- (void)setChannelTimeoutWithScheduled:(NSDate*)timeoutDate;
 
--(void)uncheckedConcurrencyChannelTerminalSizeUpdate;
--(void)uncheckedConcurrencyChannelCloseIfNeeded;
+- (void)uncheckedConcurrencyChannelTerminalSizeUpdate;
+- (void)uncheckedConcurrencyChannelCloseIfNeeded;
 
 @end
 

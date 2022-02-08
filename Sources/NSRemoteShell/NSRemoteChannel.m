@@ -27,7 +27,7 @@
 
 // MARK: - LIFE CYCLE
 
--(instancetype)initWithRepresentedSession:(LIBSSH2_SESSION *)representedSession
+- (instancetype)initWithRepresentedSession:(LIBSSH2_SESSION *)representedSession
                      withRepresentedChanel:(LIBSSH2_CHANNEL *)representedChannel
 {
     self = [super init];
@@ -40,14 +40,14 @@
     return self;
 }
 
--(void)dealloc {
+- (void)dealloc {
     NSLog(@"channel object at %p deallocating", self);
     [self uncheckedConcurrencyChannelCloseIfNeeded];
 }
 
 // MARK: - EVENT LOOP
 
--(void)insanityUncheckedEventLoop {
+- (void)insanityUncheckedEventLoop {
     if (self.channelCompleted) { return; }
     if (![self seatbeltCheckPassed]) { return; }
     [self uncheckedConcurrencyChannelRead];
@@ -58,7 +58,7 @@
 
 // MARK: - SETUP
 
--(void)onTermination:(dispatch_block_t)terminationHandler {
+- (void)onTermination:(dispatch_block_t)terminationHandler {
     if (terminationHandler) {
         self.terminationBlock = terminationHandler;
     } else {
@@ -66,7 +66,7 @@
     }
 }
 
--(void)setRequestDataChain:(NSRemoteChannelRequestDataBlock _Nonnull)requestData {
+- (void)setRequestDataChain:(NSRemoteChannelRequestDataBlock _Nonnull)requestData {
     if (!requestData) {
         self.requestDataBlock = NULL;
     } else {
@@ -74,7 +74,7 @@
     }
 }
 
--(void)setRecivedDataChain:(NSRemoteChannelReceiveDataBlock _Nonnull)receiveData {
+- (void)setRecivedDataChain:(NSRemoteChannelReceiveDataBlock _Nonnull)receiveData {
     if (!receiveData) {
         self.receiveDataBlock = NULL;
     } else {
@@ -82,7 +82,7 @@
     }
 }
 
--(void)setContinuationChain:(NSRemoteChannelContinuationBlock _Nonnull)continuation {
+- (void)setContinuationChain:(NSRemoteChannelContinuationBlock _Nonnull)continuation {
     if (!continuation) {
         self.continuationDecisionBlock = NULL;
     } else {
@@ -90,7 +90,7 @@
     }
 }
 
--(void)setTerminalSizeChain:(NSRemoteChannelTerminalSizeBlock _Nonnull)terminalSize {
+- (void)setTerminalSizeChain:(NSRemoteChannelTerminalSizeBlock _Nonnull)terminalSize {
     if (terminalSize) {
         self.requestTerminalSizeBlock = terminalSize;
     } else {
@@ -98,7 +98,7 @@
     }
 }
 
--(void)setChannelTimeoutWith:(double)timeoutValueFromNowInSecond {
+- (void)setChannelTimeoutWith:(double)timeoutValueFromNowInSecond {
     if (timeoutValueFromNowInSecond <= 0) {
         return;
     }
@@ -106,11 +106,11 @@
     [self setChannelTimeoutWithScheduled:schedule];
 }
 
--(void)setChannelTimeoutWithScheduled:(NSDate*)timeoutDate {
+- (void)setChannelTimeoutWithScheduled:(NSDate*)timeoutDate {
     self.scheduledTermination = timeoutDate;
 }
 
--(void)setChannelCompleted:(BOOL)channelCompleted {
+- (void)setChannelCompleted:(BOOL)channelCompleted {
     if (_channelCompleted != channelCompleted) {
         _channelCompleted = channelCompleted;
         [self uncheckedConcurrencyChannelCloseIfNeeded];
@@ -119,13 +119,13 @@
 
 // MARK: - EXEC
 
--(BOOL)seatbeltCheckPassed {
+- (BOOL)seatbeltCheckPassed {
     if (!self.representedSession) { self.channelCompleted = YES; return NO; }
     if (!self.representedChannel) { self.channelCompleted = YES; return NO; }
     return YES;
 }
 
--(void)uncheckedConcurrencyChannelRead {
+- (void)uncheckedConcurrencyChannelRead {
     char buffer[BUFFER_SIZE];
     char errorBuffer[BUFFER_SIZE];
     memset(buffer, 0, sizeof(buffer));
@@ -148,7 +148,7 @@
     }
 }
 
--(void)uncheckedConcurrencyChannelWrite {
+- (void)uncheckedConcurrencyChannelWrite {
     if (!self.requestDataBlock) {
         return;
     }
@@ -183,7 +183,7 @@
     }
 }
 
--(BOOL)uncheckedConcurrencyChannelShouldTerminate {
+- (BOOL)uncheckedConcurrencyChannelShouldTerminate {
     do {
         if (self.scheduledTermination && [self.scheduledTermination timeIntervalSinceNow] < 0) {
             NSLog(@"channel terminating due to timeout schedule");
@@ -205,7 +205,7 @@
     return YES;
 }
 
--(void)uncheckedConcurrencyChannelTerminalSizeUpdate {
+- (void)uncheckedConcurrencyChannelTerminalSizeUpdate {
     // may called from outside
     if (![self seatbeltCheckPassed]) { return; }
     if (!self.requestTerminalSizeBlock) {
@@ -228,7 +228,7 @@
     }
 }
 
--(void)uncheckedConcurrencyChannelCloseIfNeeded {
+- (void)uncheckedConcurrencyChannelCloseIfNeeded {
     // may called from outside, and don't loop here
 //    if (![self seatbeltCheckPassed]) { return; }
     if (!self.representedSession) { return; }
