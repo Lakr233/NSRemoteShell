@@ -353,7 +353,7 @@
 }
 
 - (BOOL)uncheckedConcurrencyConstructConnectionAndReturnSuccess:(id)withCandidateAddressData {
-    int port = [self.remotePort integerValue];
+    long port = [self.remotePort integerValue];
     double timeout = [self.operationTimeout doubleValue];
     NSMutableString *resolvedIpAddress = [[NSMutableString alloc] init];
     _Nullable CFSocketRef socket = [GenericNetworking connectSocketWith:withCandidateAddressData

@@ -80,10 +80,7 @@
                             userInfo:NULL
                             repeats:YES];
     [self.associatedRunLoop addTimer:self.associatedTimer forMode:NSRunLoopCommonModes];
-    
-    NSLog(@"%@ %p run loop started", [self className], self);
     [self.associatedRunLoop run];
-    NSLog(@"%@ %p run loop stopped", [self className], self);
     assert(false);
 }
 

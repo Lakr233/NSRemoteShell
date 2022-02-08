@@ -14,7 +14,7 @@ NS_ASSUME_NONNULL_BEGIN
 + (NSArray *)resolveIpAddressesFor:(NSString*)candidateHost;
 
 + (nullable CFSocketRef)connectSocketWith:(id)candidateHostData
-                                 withPort:(int)candidatePort
+                                 withPort:(long)candidatePort
                               withTimeout:(double)candidateTimeout
                             withIpAddress:(NSMutableString*)resolvedAddress;
 

@@ -66,7 +66,7 @@
 }
 
 + (nullable CFSocketRef)connectSocketWith:(id)candidateHostData
-                                 withPort:(int)candidatePort
+                                 withPort:(long)candidatePort
                               withTimeout:(double)candidateTimeout
                             withIpAddress:(NSMutableString*)resolvedAddress
 {
