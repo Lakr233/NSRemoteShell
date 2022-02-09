@@ -253,7 +253,11 @@
     
     libssh2_session_set_blocking(constructorSession, 0);
     BOOL sessionHandshakeComplete = NO;
+    NSDate *date = [[NSDate alloc] initWithTimeIntervalSinceNow:[self.operationTimeout intValue]];
     while (true) {
+        if ([date timeIntervalSinceNow] < 0) {
+            break;
+        }
         long rc = libssh2_session_handshake(constructorSession, CFSocketGetNative(socket));
         if (rc == LIBSSH2_ERROR_EAGAIN) {
             continue;
@@ -263,6 +267,7 @@
     }
     if (!sessionHandshakeComplete) {
         [self uncheckedConcurrencyDisconnect];
+        return;
     }
     
     do {
