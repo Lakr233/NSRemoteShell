@@ -12,17 +12,9 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface NSRemoteShellWeakReference : NSObject
-
-@property (nonatomic, readwrite, weak) NSRemoteShell* representedObject;
-
-- (instancetype)initWith:(NSRemoteShell*)remoteObject;
-
-@end
-
 @interface TSEventLoop : NSObject <NSPortDelegate>
 
-+(id)sharedLoop;
++ (instancetype)sharedLoop;
 
 - (void)explicitRequestHandle;
 - (void)delegatingRemoteWith:(NSRemoteShell*)object;

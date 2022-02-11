@@ -32,10 +32,10 @@
 {
     self = [super init];
     if (self) {
-        self.representedSession = representedSession;
-        self.representedChannel = representedChannel;
-        self.channelCompleted = NO;
-        self.currentTerminalSize = CGSizeMake(0, 0);
+        _representedSession = representedSession;
+        _representedChannel = representedChannel;
+        _channelCompleted = NO;
+        _currentTerminalSize = CGSizeMake(0, 0);
     }
     return self;
 }
@@ -94,7 +94,7 @@
     if (terminalSize) {
         self.requestTerminalSizeBlock = terminalSize;
     } else {
-        self.requestDataBlock = NULL;
+        self.requestTerminalSizeBlock = NULL;
     }
 }
 
