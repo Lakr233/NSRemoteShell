@@ -42,18 +42,21 @@
 
 - (instancetype)init {
     self = [super init];
-    self.remoteHost = @"";
-    self.remotePort = @(22);
-    self.operationTimeout = @(8);
-    self.connected = NO;
-    self.authenticated = NO;
-    self.resolvedRemoteIpAddress = NULL;
-    
-    self.associatedSocket = NULL;
-    self.associatedSession = NULL;
-    self.associatedChannel = [[NSMutableArray alloc] init];
-    
-    self.requestInvokations = [[NSMutableArray alloc] init];
+
+    if (self) {
+        _remoteHost = @"";
+        _remotePort = @(22);
+        _operationTimeout = @(8);
+        _connected = NO;
+        _authenticated = NO;
+        _resolvedRemoteIpAddress = NULL;
+
+        _associatedSocket = NULL;
+        _associatedSession = NULL;
+        _associatedChannel = [[NSMutableArray alloc] init];
+
+        _requestInvokations = [[NSMutableArray alloc] init];
+    }
     
     [[TSEventLoop sharedLoop] delegatingRemoteWith:self];
     
@@ -200,17 +203,17 @@
 }
 
 - (instancetype)openShellWithTerminal:(nullable NSString*)terminalType
-                    withTermianlSize:(nullable CGSize (^)(void))requestTermianlSize
-                       withWriteData:(nullable NSString* (^)(void))requestWriteData
-                          withOutput:(void (^)(NSString * _Nonnull))responseDataBlock
-             withContinuationHandler:(BOOL (^)(void))continuationBlock
+                     withTerminalSize:(nullable CGSize (^)(void))requestTerminalSize
+                        withWriteData:(nullable NSString* (^)(void))requestWriteData
+                           withOutput:(void (^)(NSString * _Nonnull))responseDataBlock
+              withContinuationHandler:(BOOL (^)(void))continuationBlock
 {
     dispatch_semaphore_t sem = dispatch_semaphore_create(0);
     __weak typeof(self) magic = self;
     @synchronized (self.requestInvokations) {
         id block = [^{
             [magic uncheckedConcurrencyOpenShellWithTerminal:terminalType
-                                            withTermianlSize:requestTermianlSize
+                                            withTerminalSize:requestTerminalSize
                                                withWriteData:requestWriteData
                                                   withOutput:responseDataBlock
                                      withContinuationHandler:continuationBlock
@@ -543,11 +546,11 @@
 }
 
 - (void)uncheckedConcurrencyOpenShellWithTerminal:(nullable NSString*)terminalType
-                                withTermianlSize:(nullable CGSize (^)(void))requestTermianlSize
-                                   withWriteData:(nullable NSString* (^)(void))requestWriteData
-                                      withOutput:(void (^)(NSString * _Nonnull))responseDataBlock
-                         withContinuationHandler:(BOOL (^)(void))continuationBlock
-                         withCompletionSemaphore:(dispatch_semaphore_t)completionSemaphore
+                                 withTerminalSize:(nullable CGSize (^)(void))requestTerminalSize
+                                    withWriteData:(nullable NSString* (^)(void))requestWriteData
+                                       withOutput:(void (^)(NSString * _Nonnull))responseDataBlock
+                          withContinuationHandler:(BOOL (^)(void))continuationBlock
+                          withCompletionSemaphore:(dispatch_semaphore_t)completionSemaphore
 {
     if (![self uncheckedConcurrencyValidateSession]) {
         [self uncheckedConcurrencyDisconnect];
@@ -579,7 +582,7 @@
     }
     NSRemoteChannel *channelObject = [[NSRemoteChannel alloc] initWithRepresentedSession:session
                                                                    withRepresentedChanel:channel];
-    if (requestTermianlSize) { [channelObject setTerminalSizeChain:requestTermianlSize]; }
+    if (requestTerminalSize) { [channelObject setTerminalSizeChain:requestTerminalSize]; }
     if (requestWriteData) { [channelObject setRequestDataChain:requestWriteData]; }
     if (responseDataBlock) { [channelObject setRecivedDataChain:responseDataBlock]; }
     if (continuationBlock) { [channelObject setContinuationChain:continuationBlock]; }

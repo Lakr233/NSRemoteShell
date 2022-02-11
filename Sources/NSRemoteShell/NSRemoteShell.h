@@ -15,9 +15,9 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, readonly, getter=isConnected) BOOL connected;
 @property (nonatomic, readonly, getter=isAuthenicated) BOOL authenticated;
 
-@property (nonatomic, readonly, nonnull, strong) NSString *remoteHost;
-@property (nonatomic, readonly, nonnull, strong) NSNumber *remotePort;
-@property (nonatomic, readonly, nonnull, strong) NSNumber *operationTimeout;
+@property (nonatomic, readonly, strong) NSString *remoteHost;
+@property (nonatomic, readonly, strong) NSNumber *remotePort;
+@property (nonatomic, readonly, strong) NSNumber *operationTimeout;
 
 @property (nonatomic, readonly, nullable, strong) NSString *resolvedRemoteIpAddress;
 @property (nonatomic, readonly, nullable, strong) NSString *remoteBanner;
@@ -26,9 +26,9 @@ NS_ASSUME_NONNULL_BEGIN
 #pragma mark initializer
 
 - (instancetype)init;
-- (instancetype)setupConnectionHost:(nonnull NSString *)targetHost;
-- (instancetype)setupConnectionPort:(nonnull NSNumber *)targetPort;
-- (instancetype)setupConnectionTimeout:(nonnull NSNumber *)timeout;
+- (instancetype)setupConnectionHost:(NSString *)targetHost;
+- (instancetype)setupConnectionPort:(NSNumber *)targetPort;
+- (instancetype)setupConnectionTimeout:(NSNumber *)timeout;
 
 #pragma mark event loop
 
@@ -42,12 +42,12 @@ NS_ASSUME_NONNULL_BEGIN
 
 #pragma mark authenticate
 
-- (instancetype)authenticateWith:(nonnull NSString *)username
-                     andPassword:(nonnull NSString *)password;
 - (instancetype)authenticateWith:(NSString *)username
-                            andPublicKey:(nullable NSString *)publicKey
-                            andPrivateKey:(NSString *)privateKey
-                             andPassword:(nullable NSString *)password;
+                     andPassword:(NSString *)password;
+- (instancetype)authenticateWith:(NSString *)username
+                    andPublicKey:(nullable NSString *)publicKey
+                   andPrivateKey:(NSString *)privateKey
+                     andPassword:(nullable NSString *)password;
 
 #pragma mark execution
 
@@ -57,10 +57,10 @@ NS_ASSUME_NONNULL_BEGIN
      withContinuationHandler:(nullable BOOL (^)(void))continuationBlock;
 
 - (instancetype)openShellWithTerminal:(nullable NSString*)terminalType
-                    withTermianlSize:(nullable CGSize (^)(void))requestTermianlSize
-                       withWriteData:(nullable NSString* (^)(void))requestWriteData
-                          withOutput:(void (^)(NSString * _Nonnull))responseDataBlock
-             withContinuationHandler:(BOOL (^)(void))continuationBlock;
+                     withTerminalSize:(nullable CGSize (^)(void))requestTerminalSize
+                        withWriteData:(nullable NSString* (^)(void))requestWriteData
+                           withOutput:(void (^)(NSString * _Nonnull))responseDataBlock
+              withContinuationHandler:(BOOL (^)(void))continuationBlock;
 
 @end
 

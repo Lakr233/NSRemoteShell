@@ -9,18 +9,6 @@
 
 #import "TSEventLoop.h"
 
-@implementation NSRemoteShellWeakReference
-
-- (instancetype)initWith:(NSRemoteShell *)remoteObject {
-    self = [super init];
-    if (self) {
-        self.representedObject = remoteObject;
-    }
-    return self;
-}
-
-@end
-
 @interface TSEventLoop () 
 
 @property (nonatomic, nonnull, strong) NSThread *associatedThread;
@@ -30,13 +18,13 @@
 
 @property (nonatomic, nonnull, strong) NSLock *concurrentLock;
 @property (nonatomic, nonnull, strong) dispatch_queue_t concurrentQueue;
-@property (nonatomic) NSMutableArray<NSRemoteShellWeakReference*> *delegatedObjects;
+@property (nonatomic, nonnull, strong) NSHashTable<NSRemoteShell *> *delegatedObjects;
 
 @end
 
 @implementation TSEventLoop
 
-+(id)sharedLoop {
++ (instancetype)sharedLoop {
     static TSEventLoop *shared = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
@@ -46,14 +34,16 @@
 }
 
 - (instancetype)init {
-    self.concurrentQueue = dispatch_queue_create("wiki.qaq.remote.event.concurrent", DISPATCH_QUEUE_CONCURRENT);
-    self.delegatedObjects = [[NSMutableArray alloc] init];
-    self.associatedThread = [[NSThread alloc] initWithTarget:self
+    if (self = [super init]) {
+        _concurrentQueue = dispatch_queue_create("wiki.qaq.remote.event.concurrent", DISPATCH_QUEUE_CONCURRENT);
+        _delegatedObjects = [NSHashTable weakObjectsHashTable];
+        _associatedThread = [[NSThread alloc] initWithTarget:self
                                                     selector:@selector(associatedThreadHandler)
                                                       object:NULL];
-    self.concurrentLock = [[NSLock alloc] init];
-    [self.associatedThread start];
-    return [super init];
+        _concurrentLock = [[NSLock alloc] init];
+        [_associatedThread start];
+    }
+    return self;
 }
 
 - (void)dealloc {
@@ -99,47 +89,23 @@
 
 - (void)delegatingRemoteWith:(NSRemoteShell *)object {
     [self.concurrentLock lock];
-    NSRemoteShellWeakReference *ref = [[NSRemoteShellWeakReference alloc] initWith:object];
-    [self.delegatedObjects addObject:ref];
-    [self uncheckedConcurrencyCleanPointerArray];
+    [self.delegatedObjects addObject:object];
     [self.concurrentLock unlock];
-}
-
-- (void)uncheckedConcurrencyCleanPointerArray {
-    NSMutableArray *newArray = [[NSMutableArray<NSRemoteShellWeakReference*> alloc] init];
-    for (NSRemoteShellWeakReference *ref in self.delegatedObjects) {
-        if (ref.representedObject) { [newArray addObject:ref]; }
-    }
-    self.delegatedObjects = newArray;
 }
 
 - (void)processUncheckedLoopDispatch {
     dispatch_group_t group = dispatch_group_create();
-    BOOL garbageFound = NO;
-    for (id delegatedObject in self.delegatedObjects) {
+    for (NSRemoteShell *delegatedObject in self.delegatedObjects.allObjects) {
         if (!delegatedObject) {
-            garbageFound = YES;
-            continue;
-        }
-        if (![delegatedObject isKindOfClass: [NSRemoteShellWeakReference self]]) {
-            garbageFound = YES;
-            continue;
-        }
-        NSRemoteShellWeakReference *object = delegatedObject;
-        if (!object.representedObject) {
-            garbageFound = YES;
             continue;
         }
         dispatch_group_enter(group);
         dispatch_async(self.concurrentQueue, ^{
-            [object.representedObject handleRequestsIfNeeded];
+            [delegatedObject handleRequestsIfNeeded];
             dispatch_group_leave(group);
         });
     }
     dispatch_group_wait(group, DISPATCH_TIME_FOREVER);
-    if (garbageFound) {
-        [self uncheckedConcurrencyCleanPointerArray];
-    }
 }
 
 @end
