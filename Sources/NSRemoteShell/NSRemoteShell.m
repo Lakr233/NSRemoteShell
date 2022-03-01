@@ -649,9 +649,8 @@
 
 - (void)uncheckedConcurrencyKeepAliveCheck
 {
-    // if current session was disconnected, skip any check
-    if (![self uncheckedConcurrencyValidateSession]) {
-        // we are leaving clean up job to others, not inside keep alive check
+    // some ssh impl wont accept keep alive if not and may break connection
+    if (!(self.isConnected && self.isAuthenicated)) {
         return;
     }
     
