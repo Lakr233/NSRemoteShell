@@ -34,6 +34,9 @@
 @property(nonatomic, nonnull, strong) NSMutableArray<NSRemoteChannel*> *associatedChannel;
 @property(nonatomic, nonnull, strong) NSMutableArray *requestInvokations;
 
+@property(nonatomic) unsigned keepAliveAttampt;
+@property(nonatomic, nullable, strong) NSDate *keepAliveLastSuccessAttampt;
+
 @end
 
 @implementation NSRemoteShell
@@ -56,9 +59,9 @@
         _associatedChannel = [[NSMutableArray alloc] init];
 
         _requestInvokations = [[NSMutableArray alloc] init];
+        
+        [[TSEventLoop sharedLoop] delegatingRemoteWith:self];
     }
-    
-    [[TSEventLoop sharedLoop] delegatingRemoteWith:self];
     
     return self;
 }
@@ -97,6 +100,7 @@
             if (invocation) { invocation(); }
         }
         [self.requestInvokations removeAllObjects];
+        [self uncheckedConcurrencyKeepAliveCheck];
         [self uncheckedConcurrencyDispatchSourceMakeDecision];
         for (NSRemoteChannel *channelObject in [self.associatedChannel copy]) {
             if (![self uncheckedConcurrencyValidateChannel:channelObject]) {
@@ -293,6 +297,12 @@
         }
     } while (0);
     
+    // because we are running non-blocking-mode
+    // we are responsible for sending the keep alive packet
+    // we set the interval value as smallest
+    // so wont case other problem (not 1 but 2)
+    libssh2_keepalive_config(constructorSession, 1, 2);
+    
     self.connected = YES;
     NSLog(@"constructed libssh2 session to %@ with %@", self.remoteHost, self.resolvedRemoteIpAddress);
 }
@@ -318,6 +328,9 @@
     self.resolvedRemoteIpAddress = NULL;
     self.remoteBanner = NULL;
     self.remoteFingerPrint = NULL;
+    
+    self.keepAliveAttampt = 0;
+    self.keepAliveLastSuccessAttampt = NULL;
 }
 
 - (void)uncheckedConcurrencyDispatchSourceMakeDecision {
@@ -634,5 +647,40 @@
     
 }
 
+- (void)uncheckedConcurrencyKeepAliveCheck
+{
+    // if current session was disconnected, skip any check
+    if (![self uncheckedConcurrencyValidateSession]) {
+        // we are leaving clean up job to others, not inside keep alive check
+        return;
+    }
+    
+    // the session is valid, check if last success attempt is shorter than interval
+    if (self.keepAliveLastSuccessAttampt) {
+        NSDate *nextRun = [self.keepAliveLastSuccessAttampt dateByAddingTimeInterval:KEEPALIVE_INTERVAL];
+        if ([nextRun timeIntervalSinceNow] >= 0) {
+            return;
+        }
+    }
+    
+    // now sending the keep alive packet
+    self.keepAliveAttampt += 1;
+    int nextInterval = 0;
+    int retVal = libssh2_keepalive_send(self.associatedSession, &nextInterval);
+    
+    //Returns 0 on success, or LIBSSH2_ERROR_SOCKET_SEND on I/O errors.
+    if (retVal == 0) {
+        self.keepAliveLastSuccessAttampt = [[NSDate alloc] init];
+        self.keepAliveAttampt = 0;
+    } else {
+        // treat anything else as error and close if retry too much times
+        if (self.keepAliveAttampt > KEEPALIVE_ERROR_TOLERANCE_MAX_RETRY) {
+            NSLog(@"shell object at %p closing session due to broken pipe", self);
+            [self uncheckedConcurrencyDisconnect];
+            return;
+        }
+        return;
+    }
+}
 
 @end
