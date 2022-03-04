@@ -189,6 +189,7 @@
                    withOutput:(void (^)(NSString * _Nonnull))responseDataBlock
       withContinuationHandler:(BOOL (^)(void))continuationBlock
 {
+    NSLog(@"requesting execute: %@", command);
     dispatch_semaphore_t sem = dispatch_semaphore_create(0);
     __weak typeof(self) magic = self;
     @synchronized (self.requestInvokations) {

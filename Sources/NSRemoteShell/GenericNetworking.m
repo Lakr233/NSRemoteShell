@@ -10,6 +10,7 @@
 #import <arpa/inet.h>
 #import <netinet/in.h>
 #import <sys/socket.h>
+#import <netdb.h>
 
 @implementation GenericNetworking
 
@@ -43,26 +44,24 @@
 		return [[NSArray alloc] init];
 	};
 
-	// create host ref
-	CFHostRef foundationHost = CFHostCreateWithName(kCFAllocatorDefault, (__bridge CFStringRef _Nonnull)(resolvingAddress));
-	if (!foundationHost) { return NULL; }
-
-	CFStreamError error;
-	NSArray *addressCandidates = nil;
-
-	// resolve host
-	int ret = CFHostStartInfoResolution(foundationHost, kCFHostAddresses, &error);
-	if (ret) {
-		addressCandidates = (__bridge NSArray *)(CFHostGetAddressing(foundationHost, NULL));
-	}
-
-	CFRelease(foundationHost);
-
-    if (addressCandidates) {
-        return addressCandidates;
-    } else {
-        return [[NSArray alloc] init];
+    NSArray<NSData*> *candidateHostData = [[NSArray alloc] init];
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = PF_UNSPEC;        // PF_INET if you want only IPv4 addresses
+    hints.ai_protocol = IPPROTO_TCP;
+    struct addrinfo *addrs, *addr;
+    getaddrinfo([resolvingAddress UTF8String], NULL, &hints, &addrs);
+    for (addr = addrs; addr; addr = addr->ai_next) {
+        char host[NI_MAXHOST];
+        getnameinfo(addr->ai_addr, addr->ai_addrlen, host, sizeof(host), NULL, 0, NI_NUMERICHOST);
+        if (strlen(host) <= 0) { continue; }
+        NSString *hostStr = [[NSString alloc] initWithUTF8String:host];
+        NSLog(@"resolving host %@ loading result: %@", resolvingAddress, hostStr);
+        NSData *build = [[NSData alloc] initWithBytes:addr->ai_addr length: addr->ai_addrlen];
+        candidateHostData = [candidateHostData arrayByAddingObject:build];
     }
+    freeaddrinfo(addrs);
+    return candidateHostData;
 }
 
 + (nullable CFSocketRef)connectSocketWith:(id)candidateHostData
