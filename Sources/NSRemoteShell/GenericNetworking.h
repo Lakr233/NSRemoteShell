@@ -7,6 +7,8 @@
 
 #import <Foundation/Foundation.h>
 
+#import "GenericHeaders.h"
+
 NS_ASSUME_NONNULL_BEGIN
 
 @interface GenericNetworking : NSObject
@@ -17,6 +19,14 @@ NS_ASSUME_NONNULL_BEGIN
                                  withPort:(long)candidatePort
                               withTimeout:(double)candidateTimeout
                             withIpAddress:(NSMutableString*)resolvedAddress;
+
++ (BOOL)validatePort:(NSNumber*)port;
+
++ (void)createSocketListnerWithLocalPortV4:(NSNumber*)localPort
+             settingV4SocketFileDescriptor:(int*)v4Socket
+             settingV6SocketFileDescriptor:(int*)v6Socket;
+
++ (void)destroyNativeSocket:(int)socketDescriptor;
 
 @end
 

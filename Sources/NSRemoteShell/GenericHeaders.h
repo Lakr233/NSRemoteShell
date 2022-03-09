@@ -9,8 +9,10 @@
 #import <libssh2_sftp.h>
 #import <libssh2_publickey.h>
 
+#import <Foundation/Foundation.h>
+
 /*
- the buffer size define the size that should read from a socket a time
+ the buffer size define the size that should read from a socket at a time
  is required to be larger then socket opt size
  
  the default size of it is set by system and can be find by
@@ -24,12 +26,60 @@
 #define BUFFER_SIZE 131072
 
 /*
- the interval for sending keep alive
+ the interval for sending keep alive packet, count in second
+ [NSRemoteShell uncheckedConcurrencyKeepAliveCheck] will skip
+ if last success attempt was within the interval
  */
 #define KEEPALIVE_INTERVAL 1
 
 /*
- indicate how many times should we ignore
- before cutting down the connection
+ represent how many failure sending keep alive packet shall we ignore
+ before cutting down the connection on client (our) side
  */
 #define KEEPALIVE_ERROR_TOLERANCE_MAX_RETRY 8
+
+/*
+ represent max wait time of an operation with dispatch semaphore can wait
+ counted in second, most used in requestXxxAndWait
+ DONT USE IN RUNNING SESSION/CHANNEL
+ */
+#define DISPATCH_SEMAPHORE_MAX_WAIT 30
+#define MakeDispatchSemaphoreWait(SEM) do { \
+    dispatch_time_t timeout = dispatch_time(DISPATCH_TIME_NOW, DISPATCH_SEMAPHORE_MAX_WAIT * NSEC_PER_SEC); \
+    if (dispatch_semaphore_wait((SEM), timeout)) { \
+        NSLog(@"dispatch semaphore wait timeout for %d second, exiting blocked operation", DISPATCH_SEMAPHORE_MAX_WAIT); \
+    } \
+} while (0);
+
+#define DISPATCH_SEMAPHORE_CHECK_SIGNLE(SEM) do { \
+    if ((SEM)) { dispatch_semaphore_signal((SEM)); } \
+} while (0);
+
+/*
+ represent socket option at queue_maxsize, can be any size
+ 
+ but libssh2 has this defined so might just use 16 to balance
+ #define libssh2_channel_forward_listen(session, port) \
+  libssh2_channel_forward_listen_ex((session), NULL, (port), NULL, 16)
+ */
+#define SOCKET_QUEUE_MAXSIZE 16
+
+/*
+ defines the event loop handler class for NSRemoteShell
+ */
+
+@protocol NSRemoteOperableObject
+
+// used in event loop call, it's time to handle operations inside this object
+// eg: NSRemoteChannel should read/write to socket, set changes and do anything else
+// is designed to be thread safe when calling
+- (void)uncheckedConcurrencyCallNonblockingOperations;
+
+// used to evaluate if this object should be close and release
+// if a check failed, disconnect is immediately called
+- (BOOL)uncheckedConcurrencyInsanityCheckAndReturnDidSuccess;
+
+// shutdown any associated resources and will soon be release
+- (void)uncheckedConcurrencyDisconnectAndPrepareForRelease;
+
+@end
