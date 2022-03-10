@@ -324,7 +324,9 @@ continue; \
 - (void)uncheckedConcurrencyConnect {
     [self uncheckedConcurrencyDisconnect];
     
-    int sock = [GenericNetworking createSocketWithTargetHost:self.remoteHost withTargetPort:self.remotePort];
+    int sock = [GenericNetworking createSocketWithTargetHost:self.remoteHost
+                                              withTargetPort:self.remotePort
+                                        requireNonblockingIO:NO];
     if (!sock) {
         NSLog(@"failed to create socket to host");
         return;

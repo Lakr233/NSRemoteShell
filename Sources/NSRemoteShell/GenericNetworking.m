@@ -85,7 +85,10 @@
     return socket_desc4;
 }
 
-+ (int)createSocketWithTargetHost:(NSString *)targetHost withTargetPort:(NSNumber *)targetPort {
++ (int)createSocketWithTargetHost:(NSString *)targetHost
+                   withTargetPort:(NSNumber *)targetPort
+             requireNonblockingIO:(BOOL)useNonblocking
+{
     if (![self isValidateWithPort:targetPort]) { return; }
     int candidatePort = [targetPort intValue];
     NSArray *addrData = [self resolveIpAddressesFor:targetHost];
@@ -108,7 +111,7 @@
                 close(forwardsock);
                 continue;
             }
-            if (fcntl(forwardsock, F_SETFL, fcntl(forwardsock, F_GETFL, 0) | O_NONBLOCK) == -1) {
+            if (useNonblocking && fcntl(forwardsock, F_SETFL, fcntl(forwardsock, F_GETFL, 0) | O_NONBLOCK) == -1) {
                 NSLog(@"failed to call fcntl for none-blocking for socket %d", forwardsock);
                 close(forwardsock);
                 continue;
@@ -132,7 +135,7 @@
                 close(forwardsock);
                 continue;
             }
-            if (fcntl(forwardsock, F_SETFL, fcntl(forwardsock, F_GETFL, 0) | O_NONBLOCK) == -1) {
+            if (useNonblocking && fcntl(forwardsock, F_SETFL, fcntl(forwardsock, F_GETFL, 0) | O_NONBLOCK) == -1) {
                 NSLog(@"failed to call fcntl for none-blocking for socket %d", forwardsock);
                 close(forwardsock);
                 continue;

@@ -20,7 +20,9 @@ NS_ASSUME_NONNULL_BEGIN
 + (int)createSocketNonblockingListenerWithLocalPort:(NSNumber*)localPort;
 
 + (int)createSocketWithTargetHost:(NSString*)targetHost
-                   withTargetPort:(NSNumber*)targetPort;
+                   withTargetPort:(NSNumber*)targetPort
+             requireNonblockingIO:(BOOL)useNonblocking
+;
 
 + (void)destroyNativeSocket:(int)socketDescriptor;
 
