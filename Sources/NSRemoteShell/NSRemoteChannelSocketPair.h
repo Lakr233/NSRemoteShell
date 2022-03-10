@@ -16,12 +16,9 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, readwrite, assign) int socket;
 @property (nonatomic, readwrite, nullable, assign) LIBSSH2_CHANNEL *channel;
 @property (nonatomic, readwrite, assign) BOOL completed;
-@property (nonatomic, readwrite, nonnull, strong) NSDate *lastDataAvailable;
-@property (nonatomic, readwrite, nonnull, strong) NSNumber *timeout;
 
 - (instancetype)initWithSocket:(int)socket
-                   withChannel:(LIBSSH2_CHANNEL*)channel
-                   withTimeout:(NSNumber*)timeout;
+                   withChannel:(LIBSSH2_CHANNEL*)channel;
 
 @end
 

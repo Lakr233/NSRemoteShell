@@ -130,8 +130,7 @@
         }
         NSLog(@"created channel for forward socket %d %p", forwardsock, channel);
         NSRemoteChannelSocketPair *pair = [[NSRemoteChannelSocketPair alloc] initWithSocket:forwardsock
-                                                                                            withChannel:channel
-                                                                                            withTimeout:self.timeout];
+                                                                                withChannel:channel];
         [self.forwardSocketPair addObject:pair];
     }
 }

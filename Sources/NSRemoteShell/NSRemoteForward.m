@@ -91,8 +91,7 @@
         return;
     }
     NSRemoteChannelSocketPair *pair = [[NSRemoteChannelSocketPair alloc] initWithSocket:socket
-                                                                            withChannel:channel
-                                                                            withTimeout:self.timeout];
+                                                                            withChannel:channel];
     [self.forwardSocketPair addObject:pair];
 }
 
