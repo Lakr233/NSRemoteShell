@@ -36,7 +36,7 @@
 }
 
 - (void)dealloc {
-    NSLog(@"%@ object at %p deallocating", [self className], self);
+    NSLog(@"TSEventLoop object at %p deallocating", self);
     [self destroyLoop];
 }
 
@@ -76,6 +76,7 @@
     assert([name isEqualToString:want]);
 #endif
     [self.parent handleRequestsIfNeeded];
+    usleep(20000); // 50 times each second
 }
 
 - (void)destroyLoop {

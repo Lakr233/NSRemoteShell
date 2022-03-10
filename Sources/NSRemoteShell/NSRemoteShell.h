@@ -66,17 +66,17 @@ NS_ASSUME_NONNULL_BEGIN
                            withOutput:(void (^)(NSString * _Nonnull))responseDataBlock
               withContinuationHandler:(BOOL (^)(void))continuationBlock;
 
-//#pragma mark port map
-//
-//- (instancetype)createPortForwardWithLocalPort:(NSNumber*)localPort
-//                         withForwardTargetHost:(NSString*)targetHost
-//                         withForwardTargetPort:(NSNumber*)targetPort
-//                       withContinuationHandler:(BOOL (^)(void))continuationBlock;
-//
-//- (instancetype)createPortForwardWithRemotePort:(NSNumber*)remotePort
-//                          withForwardTargetHost:(NSString*)targetHost
-//                          withForwardTargetPort:(NSNumber*)targetPort
-//                        withContinuationHandler:(BOOL (^)(void))continuationBlock;
+#pragma mark port map
+
+- (instancetype)createPortForwardWithLocalPort:(NSNumber*)localPort
+                         withForwardTargetHost:(NSString*)targetHost
+                         withForwardTargetPort:(NSNumber*)targetPort
+                       withContinuationHandler:(BOOL (^)(void))continuationBlock;
+
+- (instancetype)createPortForwardWithRemotePort:(NSNumber*)remotePort
+                          withForwardTargetHost:(NSString*)targetHost
+                          withForwardTargetPort:(NSNumber*)targetPort
+                        withContinuationHandler:(BOOL (^)(void))continuationBlock;
 
 @end
 

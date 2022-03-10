@@ -222,16 +222,13 @@
 }
 
 - (void)uncheckedConcurrencyDisconnectAndPrepareForRelease {
+    if (!self.channelCompleted) { self.channelCompleted = YES; }
     if (!self.representedSession) { return; }
     if (!self.representedChannel) { return; }
-    if (!self.channelCompleted) { self.channelCompleted = YES; }
     LIBSSH2_CHANNEL *channel = self.representedChannel;
     self.representedChannel = NULL;
     self.representedSession = NULL;
-    while (libssh2_channel_send_eof(channel) == LIBSSH2_ERROR_EAGAIN) {};
-    while (libssh2_channel_close(channel) == LIBSSH2_ERROR_EAGAIN) {};
-    while (libssh2_channel_wait_closed(channel) == LIBSSH2_ERROR_EAGAIN) {};
-    while (libssh2_channel_free(channel) == LIBSSH2_ERROR_EAGAIN) {};
+    LIBSSH2_CHANNEL_SHUTDOWN(channel);
     if (self.terminationBlock) { self.terminationBlock(); }
     self.terminationBlock = NULL;
 }

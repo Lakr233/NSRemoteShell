@@ -15,18 +15,16 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (NSArray *)resolveIpAddressesFor:(NSString*)candidateHost;
 
-+ (nullable CFSocketRef)connectSocketWith:(id)candidateHostData
-                                 withPort:(long)candidatePort
-                              withTimeout:(double)candidateTimeout
-                            withIpAddress:(NSMutableString*)resolvedAddress;
++ (BOOL)isValidateWithPort:(NSNumber*)port;
 
-+ (BOOL)validatePort:(NSNumber*)port;
++ (int)createSocketNonblockingListenerWithLocalPort:(NSNumber*)localPort;
 
-+ (void)createSocketListnerWithLocalPortV4:(NSNumber*)localPort
-             settingV4SocketFileDescriptor:(int*)v4Socket
-             settingV6SocketFileDescriptor:(int*)v6Socket;
++ (int)createSocketWithTargetHost:(NSString*)targetHost
+                   withTargetPort:(NSNumber*)targetPort;
 
 + (void)destroyNativeSocket:(int)socketDescriptor;
+
++ (NSString*)getResolvedIpAddressWith:(int)socket;
 
 @end
 

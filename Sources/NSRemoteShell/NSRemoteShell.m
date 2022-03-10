@@ -6,8 +6,12 @@
 //
 
 #import "NSRemoteShell.h"
+
 #import "TSEventLoop.h"
+
 #import "NSRemoteChannel.h"
+#import "NSLocalForward.h"
+#import "NSRemoteForward.h"
 
 #import "GenericHeaders.h"
 #import "GenericNetworking.h"
@@ -30,7 +34,7 @@
 @property(nonatomic, readwrite, getter=isConnected) BOOL connected;
 @property(nonatomic, readwrite, getter=isAuthenicated) BOOL authenticated;
 
-@property(nonatomic, nullable, assign) CFSocketRef associatedSocket;
+@property(nonatomic, readwrite, assign) int associatedSocket;
 @property(nonatomic, nullable, assign) LIBSSH2_SESSION *associatedSession;
 @property(nonatomic, nullable, strong) dispatch_source_t associatedSocketSource;
 
@@ -93,7 +97,7 @@
     if (timeout.doubleValue < 1) {
         NSLog(@"setting timeout value %@ below 1 is not supported", [timeout stringValue]);
 #if DEBUG
-        NSLog(@"for debug purpose, call ivar setter on operationTimeout with a %@", [self.operationTimeout className]);
+        NSLog(@"for debug purpose, call ivar setter on operationTimeout with a NSNumber");
 #endif
         return;
     }
@@ -134,7 +138,7 @@ continue; \
         self.operableObjects = newArray;
         [self uncheckedConcurrencyDispatchSourceMakeDecision];
     }
-    [self uncheckedConcurrencyGetLastError];
+    [self uncheckedConcurrencyReadLastError];
     [self.requestLoopLock unlock];
 }
 
@@ -257,49 +261,49 @@ continue; \
     return self;
 }
 
-//- (instancetype)createPortForwardWithLocalPort:(NSNumber *)localPort
-//                         withForwardTargetHost:(NSString *)targetHost
-//                         withForwardTargetPort:(NSNumber *)targetPort
-//                       withContinuationHandler:(BOOL (^)(void))continuationBlock
-//{
-//    dispatch_semaphore_t sem = dispatch_semaphore_create(0);
-//    __weak typeof(self) magic = self;
-//    @synchronized (self.requestInvokations) {
-//        id block = [^{
-//            [magic uncheckedConcurrencyCreatePortForwardWithLocalPort:localPort
-//                                                withForwardTargetHost:targetHost
-//                                                withForwardTargetPort:targetPort
-//                                              withContinuationHandler:continuationBlock
-//                                              withCompletionSemaphore:sem];
-//        } copy];
-//        [self.requestInvokations addObject:block];
-//    }
-//    [self.associatedLoop explicitRequestHandle];
-//    dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
-//    return self;
-//}
-//
-//- (instancetype)createPortForwardWithRemotePort:(NSNumber *)remotePort
-//                          withForwardTargetHost:(NSString *)targetHost
-//                          withForwardTargetPort:(NSNumber *)targetPort
-//                        withContinuationHandler:(BOOL (^)(void))continuationBlock
-//{
-//    dispatch_semaphore_t sem = dispatch_semaphore_create(0);
-//    __weak typeof(self) magic = self;
-//    @synchronized (self.requestInvokations) {
-//        id block = [^{
-//            [magic uncheckedConcurrencyCreatePortForwardWithRemotePort:remotePort
-//                                                withForwardTargetHost:targetHost
-//                                                withForwardTargetPort:targetPort
-//                                              withContinuationHandler:continuationBlock
-//                                              withCompletionSemaphore:sem];
-//        } copy];
-//        [self.requestInvokations addObject:block];
-//    }
-//    [self.associatedLoop explicitRequestHandle];
-//    dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
-//    return self;
-//}
+- (instancetype)createPortForwardWithLocalPort:(NSNumber *)localPort
+                         withForwardTargetHost:(NSString *)targetHost
+                         withForwardTargetPort:(NSNumber *)targetPort
+                       withContinuationHandler:(BOOL (^)(void))continuationBlock
+{
+    dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+    __weak typeof(self) magic = self;
+    @synchronized (self.requestInvokations) {
+        id block = [^{
+            [magic uncheckedConcurrencyCreatePortForwardWithLocalPort:localPort
+                                                withForwardTargetHost:targetHost
+                                                withForwardTargetPort:targetPort
+                                              withContinuationHandler:continuationBlock
+                                              withCompletionSemaphore:sem];
+        } copy];
+        [self.requestInvokations addObject:block];
+    }
+    [self.associatedLoop explicitRequestHandle];
+    dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
+    return self;
+}
+
+- (instancetype)createPortForwardWithRemotePort:(NSNumber *)remotePort
+                          withForwardTargetHost:(NSString *)targetHost
+                          withForwardTargetPort:(NSNumber *)targetPort
+                        withContinuationHandler:(BOOL (^)(void))continuationBlock
+{
+    dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+    __weak typeof(self) magic = self;
+    @synchronized (self.requestInvokations) {
+        id block = [^{
+            [magic uncheckedConcurrencyCreatePortForwardWithRemotePort:remotePort
+                                                 withForwardTargetHost:targetHost
+                                                 withForwardTargetPort:targetPort
+                                               withContinuationHandler:continuationBlock
+                                               withCompletionSemaphore:sem];
+        } copy];
+        [self.requestInvokations addObject:block];
+    }
+    [self.associatedLoop explicitRequestHandle];
+    dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
+    return self;
+}
 
 // MARK: - HELPER
 
@@ -319,19 +323,15 @@ continue; \
 
 - (void)uncheckedConcurrencyConnect {
     [self uncheckedConcurrencyDisconnect];
-    NSArray *candidateHosts = [GenericNetworking resolveIpAddressesFor:self.remoteHost];
-    BOOL constructCompleted = NO;
-    for (id candidateAddressData in candidateHosts) {
-        constructCompleted = [self uncheckedConcurrencyConstructConnectionAndReturnSuccess: candidateAddressData];
-        if (constructCompleted) {
-            break;
-        }
-    }
-    CFSocketRef socket = self.associatedSocket;
-    if (!constructCompleted || !socket) {
-        [self uncheckedConcurrencyDisconnect];
+    
+    int sock = [GenericNetworking createSocketWithTargetHost:self.remoteHost withTargetPort:self.remotePort];
+    if (!sock) {
+        NSLog(@"failed to create socket to host");
         return;
     }
+    self.associatedSocket = sock;
+    
+    self.resolvedRemoteIpAddress = [GenericNetworking getResolvedIpAddressWith:sock];
     
     LIBSSH2_SESSION *constructorSession = libssh2_session_init_ex(0, 0, 0, (__bridge void *)(self));
     if (!constructorSession) {
@@ -351,7 +351,7 @@ continue; \
             libssh2_session_set_last_error(self.associatedSession, LIBSSH2_ERROR_TIMEOUT, NULL);
             break;
         }
-        long rc = libssh2_session_handshake(constructorSession, CFSocketGetNative(socket));
+        long rc = libssh2_session_handshake(constructorSession, sock);
         if (rc == LIBSSH2_ERROR_EAGAIN) {
             continue;
         }
@@ -403,8 +403,7 @@ continue; \
     self.associatedSession = NULL;
     
     if (self.associatedSocket) {
-        CFSocketInvalidate(self.associatedSocket);
-        CFRelease(self.associatedSocket);
+        [GenericNetworking destroyNativeSocket:self.associatedSocket];
     }
     self.associatedSocket = NULL;
     
@@ -419,14 +418,14 @@ continue; \
     self.keepAliveLastSuccessAttampt = NULL;
     
     // any error occurred during connect will result disconnect
-    [self uncheckedConcurrencyGetLastError];
+    [self uncheckedConcurrencyReadLastError];
 }
 
 - (void)uncheckedConcurrencyDispatchSourceMakeDecision {
     if ([self.operableObjects count] > 0) {
         if (!self.associatedSocketSource) {
             dispatch_source_t socketDataSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ,
-                                                                        CFSocketGetNative(self.associatedSocket),
+                                                                        self.associatedSocket,
                                                                         NULL,
                                                                         dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0));
             if (!socketDataSource) {
@@ -482,7 +481,7 @@ continue; \
     }
 }
 
-- (void)uncheckedConcurrencyGetLastError {
+- (void)uncheckedConcurrencyReadLastError {
     if (!self.associatedSession) { return; }
     int rv = libssh2_session_last_errno(self.associatedSession);
     if (rv == 0 || rv == LIBSSH2_ERROR_EAGAIN) {
@@ -511,22 +510,6 @@ continue; \
                                   andTimeoutValue:(double)timeoutValue {
     if (!session) return;
     libssh2_session_set_timeout(session, timeoutValue);
-}
-
-- (BOOL)uncheckedConcurrencyConstructConnectionAndReturnSuccess:(id)withCandidateAddressData {
-    long port = [self.remotePort integerValue];
-    double timeout = [self.operationTimeout doubleValue];
-    NSMutableString *resolvedIpAddress = [[NSMutableString alloc] init];
-    _Nullable CFSocketRef socket = [GenericNetworking connectSocketWith:withCandidateAddressData
-                                                               withPort: port
-                                                            withTimeout:timeout
-                                                          withIpAddress:resolvedIpAddress];
-    if (!socket) {
-        return NO;
-    }
-    self.associatedSocket = socket;
-    self.resolvedRemoteIpAddress = resolvedIpAddress;
-    return YES;
 }
 
 - (BOOL)uncheckedConcurrencyValidateSession {
@@ -559,7 +542,7 @@ continue; \
         authenticated = (rc == 0);
         break;
     }
-    [self uncheckedConcurrencyGetLastError];
+    [self uncheckedConcurrencyReadLastError];
     if (authenticated) {
         self.authenticated = YES;
         NSLog(@"authenticate success");
@@ -591,7 +574,7 @@ continue; \
         authenticated = (rc == 0);
         break;
     }
-    [self uncheckedConcurrencyGetLastError];
+    [self uncheckedConcurrencyReadLastError];
     if (authenticated) {
         self.authenticated = YES;
         NSLog(@"authenticate success");
@@ -632,7 +615,7 @@ continue; \
         }
         break;
     }
-    [self uncheckedConcurrencyGetLastError];
+    [self uncheckedConcurrencyReadLastError];
     if (!channel) {
         NSLog(@"failed to allocate channel");
         DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);;
@@ -654,7 +637,9 @@ continue; \
         return;
     }
     
-    [channelObject setChannelTimeoutWith:[timeoutSecond doubleValue]];
+    if ([timeoutSecond doubleValue] > 0) {
+        [channelObject setChannelTimeoutWith:[timeoutSecond doubleValue]];
+    }
     
     if (responseDataBlock) { [channelObject setRecivedDataChain:responseDataBlock]; }
     if (continuationBlock) { [channelObject setContinuationChain:continuationBlock]; }
@@ -702,7 +687,7 @@ continue; \
         }
         break;
     }
-    [self uncheckedConcurrencyGetLastError];
+    [self uncheckedConcurrencyReadLastError];
     if (!channel) {
         NSLog(@"failed to allocate channel");
         DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);;
@@ -762,46 +747,134 @@ continue; \
     
 }
 
-//- (void)uncheckedConcurrencyCreatePortForwardWithLocalPort:(NSNumber *)localPort
-//                                     withForwardTargetHost:(NSString *)targetHost
-//                                     withForwardTargetPort:(NSNumber *)targetPort
-//                                   withContinuationHandler:(BOOL (^)(void))continuationBlock
-//                                   withCompletionSemaphore:(dispatch_semaphore_t)completionSemaphore
-//{
-//    NSLog(@"requested port forward from localhost:%@ --tunnel--> %@:%@", [localPort stringValue], targetHost, [targetPort stringValue]);
-//    BOOL inputValidator = 0 |
-//        [GenericNetworking validatePort:localPort] |
-//        [GenericNetworking validatePort:targetPort] |
-//        ![targetHost isEqualToString:@""];
-//    if (inputValidator) {
-//        DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);
-//        return NSLog(@"invalid parameter was found");
-//    }
-//
-//    int sock4 = 0, sock6 = 6;
-//    [GenericNetworking createSocketListnerWithLocalPortV4:localPort
-//                            settingV4SocketFileDescriptor:&sock4
-//                            settingV6SocketFileDescriptor:&sock6];
-//    if (sock4 <= 0 || sock6 <= 0) {
-//        [GenericNetworking destroyNativeSocket:sock4];
-//        [GenericNetworking destroyNativeSocket:sock6];
-//        NSLog(@"failed to listen on port");
-//    }
-//
-//
-//
-//}
-//
-//- (void)uncheckedConcurrencyCreatePortForwardWithRemotePort:(NSNumber *)remotePort
-//                          withForwardTargetHost:(NSString *)targetHost
-//                          withForwardTargetPort:(NSNumber *)targetPort
-//                        withContinuationHandler:(BOOL (^)(void))continuationBlock
-//                        withCompletionSemaphore:(dispatch_semaphore_t)completionSemaphore
-//{
-//    NSLog(@"requested port forward from remote:%@ --tunnel--> %@:%@", [remotePort stringValue], targetHost, [targetPort stringValue]);
-//
-//}
+- (void)uncheckedConcurrencyCreatePortForwardWithLocalPort:(NSNumber *)localPort
+                                     withForwardTargetHost:(NSString *)targetHost
+                                     withForwardTargetPort:(NSNumber *)targetPort
+                                   withContinuationHandler:(BOOL (^)(void))continuationBlock
+                                   withCompletionSemaphore:(dispatch_semaphore_t)completionSemaphore
+{
+    NSLog(@"requested port forward from localhost:%@ --tunnel--> %@:%@", [localPort stringValue], targetHost, [targetPort stringValue]);
+    BOOL invalid = NO ||
+    ![GenericNetworking isValidateWithPort:localPort] ||
+    ![GenericNetworking isValidateWithPort:targetPort] ||
+    [targetHost isEqualToString:@""];
+    if (invalid) {
+        DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);
+        NSLog(@"invalid parameter was found");
+        return;
+    }
+    
+    if (![self uncheckedConcurrencyValidateSession]) {
+        [self uncheckedConcurrencyDisconnect];
+        DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);;
+        return;
+    }
+    if (!self.authenticated) {
+        DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);;
+        return;
+    }
+    
+    int sock4 = [GenericNetworking createSocketNonblockingListenerWithLocalPort:localPort];
+    if (sock4 <= 0) {
+        DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);
+        return;
+    }
+    
+    NSLog(@"processing channel startup for direct tcpip");
+    
+    LIBSSH2_SESSION *session = self.associatedSession;
+    NSLocalForward *operator = [[NSLocalForward alloc] initWithRepresentedSession:session
+                                                            withRepresentedSocket:sock4
+                                                                   withTargetHost:targetHost
+                                                                   withTargetPort:targetPort
+                                                                    withLocalPort:localPort
+                                                                      withTimeout:self.operationTimeout
+    ];
+    
+    [operator setContinuationChain:continuationBlock];
+    
+    if (completionSemaphore) {
+        [operator onTermination:^{
+            DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);;
+        }];
+    }
+    
+    [self.operableObjects addObject:operator];
+}
 
-
+- (void)uncheckedConcurrencyCreatePortForwardWithRemotePort:(NSNumber *)remotePort
+                                      withForwardTargetHost:(NSString *)targetHost
+                                      withForwardTargetPort:(NSNumber *)targetPort
+                                    withContinuationHandler:(BOOL (^)(void))continuationBlock
+                                    withCompletionSemaphore:(dispatch_semaphore_t)completionSemaphore
+{
+    NSLog(@"requested port forward from remote:%@ --tunnel--> %@:%@", [remotePort stringValue], targetHost, [targetPort stringValue]);
+    BOOL invalid = NO ||
+    ![GenericNetworking isValidateWithPort:remotePort] ||
+    ![GenericNetworking isValidateWithPort:targetPort] ||
+    [targetHost isEqualToString:@""];
+    if (invalid) {
+        DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);
+        NSLog(@"invalid parameter was found");
+        return;
+    }
+    
+    if (![self uncheckedConcurrencyValidateSession]) {
+        [self uncheckedConcurrencyDisconnect];
+        DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);;
+        return;
+    }
+    if (!self.authenticated) {
+        DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);;
+        return;
+    }
+    
+    LIBSSH2_SESSION *session = self.associatedSession;
+    LIBSSH2_LISTENER *listener = NULL;
+    NSDate *date = [[NSDate alloc] initWithTimeIntervalSinceNow:[self.operationTimeout intValue]];
+    while (true) {
+        if ([date timeIntervalSinceNow] < 0) {
+            libssh2_session_set_last_error(self.associatedSession, LIBSSH2_ERROR_TIMEOUT, NULL);
+            break;
+        }
+        LIBSSH2_LISTENER *builder = libssh2_channel_forward_listen_ex(session,
+                                                                      "127.0.0.1", // for security reason
+                                                                      [remotePort intValue],
+                                                                      NULL,
+                                                                      SOCKET_QUEUE_MAXSIZE);
+        if (builder) {
+            listener = builder;
+            break;
+        }
+        long rc = libssh2_session_last_errno(session);
+        // it's a bug
+        // looks like libssh2 reading with dirty memory data
+        if (rc == LIBSSH2_ERROR_EAGAIN || rc == LIBSSH2_ERROR_REQUEST_DENIED) {
+            continue;
+        }
+        break;
+    }
+    [self uncheckedConcurrencyReadLastError];
+    if (!listener) {
+        DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);
+        NSLog(@"libssh2_channel_forward_listen_ex was not able to receive listener");
+        return;
+    }
+    
+    NSRemoteForward *operator = [[NSRemoteForward alloc] initWithRepresentedSession:session
+                                                            withRepresentedListener:listener
+                                                                     withTargetHost:targetHost
+                                                                     withTargetPort:targetPort
+                                                                        withTimeout:self.operationTimeout];
+    [operator setContinuationChain:continuationBlock];
+    
+    if (completionSemaphore) {
+        [operator onTermination:^{
+            DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);;
+        }];
+    }
+    
+    [self.operableObjects addObject:operator];
+}
 
 @end

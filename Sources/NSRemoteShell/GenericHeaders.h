@@ -9,6 +9,11 @@
 #import <libssh2_sftp.h>
 #import <libssh2_publickey.h>
 
+#import <arpa/inet.h>
+#import <netinet/in.h>
+#import <sys/socket.h>
+#import <netdb.h>
+
 #import <Foundation/Foundation.h>
 
 /*
@@ -56,6 +61,16 @@
 } while (0);
 
 /*
+ common used libssh2 channel gracefully shutdown all in one
+ */
+#define LIBSSH2_CHANNEL_SHUTDOWN(CHANNEL) do { \
+    while (libssh2_channel_send_eof(CHANNEL) == LIBSSH2_ERROR_EAGAIN) {}; \
+    while (libssh2_channel_close(CHANNEL) == LIBSSH2_ERROR_EAGAIN) {}; \
+    while (libssh2_channel_wait_closed(CHANNEL) == LIBSSH2_ERROR_EAGAIN) {}; \
+    while (libssh2_channel_free(CHANNEL) == LIBSSH2_ERROR_EAGAIN) {}; \
+} while (0);
+
+/*
  represent socket option at queue_maxsize, can be any size
  
  but libssh2 has this defined so might just use 16 to balance
@@ -67,7 +82,6 @@
 /*
  defines the event loop handler class for NSRemoteShell
  */
-
 @protocol NSRemoteOperableObject
 
 // used in event loop call, it's time to handle operations inside this object
