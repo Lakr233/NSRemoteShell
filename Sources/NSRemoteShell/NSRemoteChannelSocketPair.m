@@ -1,13 +1,13 @@
 //
-//  NSRemoteChannleSocketPair.m
+//  NSRemoteChannelSocketPair.m
 //  
 //
 //  Created by Lakr Aream on 2022/3/9.
 //
 
-#import "NSRemoteChannleSocketPair.h"
+#import "NSRemoteChannelSocketPair.h"
 
-@implementation NSRemoteChannleSocketPair
+@implementation NSRemoteChannelSocketPair
 
 - (instancetype)initWithSocket:(int)socket
                    withChannel:(LIBSSH2_CHANNEL*)channel

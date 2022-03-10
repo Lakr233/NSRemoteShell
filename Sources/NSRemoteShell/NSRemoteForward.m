@@ -90,7 +90,7 @@
         LIBSSH2_CHANNEL_SHUTDOWN(channel);
         return;
     }
-    NSRemoteChannleSocketPair *pair = [[NSRemoteChannleSocketPair alloc] initWithSocket:socket
+    NSRemoteChannelSocketPair *pair = [[NSRemoteChannelSocketPair alloc] initWithSocket:socket
                                                                             withChannel:channel
                                                                             withTimeout:self.timeout];
     [self.forwardSocketPair addObject:pair];
@@ -98,7 +98,7 @@
 
 - (void)uncheckedConcurrencyProcessAllSocket {
     NSMutableArray *newArray = [[NSMutableArray alloc] init];
-    for (NSRemoteChannleSocketPair *pair in self.forwardSocketPair) {
+    for (NSRemoteChannelSocketPair *pair in self.forwardSocketPair) {
         if (![pair uncheckedConcurrencyInsanityCheckAndReturnDidSuccess]) {
             [pair uncheckedConcurrencyDisconnectAndPrepareForRelease];
             continue;
@@ -141,7 +141,7 @@
     LIBSSH2_LISTENER *listener = self.representedListener;
     self.representedListener = NULL;
     while (libssh2_channel_forward_cancel(listener) == LIBSSH2_ERROR_EAGAIN) {};
-    for (NSRemoteChannleSocketPair *pair in self.forwardSocketPair) {
+    for (NSRemoteChannelSocketPair *pair in self.forwardSocketPair) {
         [pair uncheckedConcurrencyDisconnectAndPrepareForRelease];
     }
     self.forwardSocketPair = [[NSMutableArray alloc] init];

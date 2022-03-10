@@ -77,7 +77,7 @@
 
 - (void)uncheckedConcurrencyProcessAllSocket {
     NSMutableArray *newArray = [[NSMutableArray alloc] init];
-    for (NSRemoteChannleSocketPair *pair in self.forwardSocketPair) {
+    for (NSRemoteChannelSocketPair *pair in self.forwardSocketPair) {
         if (![pair uncheckedConcurrencyInsanityCheckAndReturnDidSuccess]) {
             [pair uncheckedConcurrencyDisconnectAndPrepareForRelease];
             continue;
@@ -129,7 +129,7 @@
             return;
         }
         NSLog(@"created channel for forward socket %d %p", forwardsock, channel);
-        NSRemoteChannleSocketPair *pair = [[NSRemoteChannleSocketPair alloc] initWithSocket:forwardsock
+        NSRemoteChannelSocketPair *pair = [[NSRemoteChannelSocketPair alloc] initWithSocket:forwardsock
                                                                                             withChannel:channel
                                                                                             withTimeout:self.timeout];
         [self.forwardSocketPair addObject:pair];
@@ -164,7 +164,7 @@
     [GenericNetworking destroyNativeSocket:socket];
     self.representedSession = NULL;
     self.representedSocket = NULL;
-    for (NSRemoteChannleSocketPair *pair in self.forwardSocketPair) {
+    for (NSRemoteChannelSocketPair *pair in self.forwardSocketPair) {
         [pair uncheckedConcurrencyDisconnectAndPrepareForRelease];
     }
     self.forwardSocketPair = [[NSMutableArray alloc] init];
