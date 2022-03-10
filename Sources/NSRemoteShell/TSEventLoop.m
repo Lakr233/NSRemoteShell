@@ -70,10 +70,20 @@
 }
 
 - (void)associatedLoopHandler {
+    if (!self.parent) {
+        [self destroyLoop];
+        return;
+    }
 #if DEBUG
     NSString *name = [[NSThread currentThread] name];
     NSString *want = [[NSString alloc] initWithFormat:@"wiki.qaq.shell.%p", self.parent];
-    assert([name isEqualToString:want]);
+    if (![name isEqualToString:want]) {
+        NSLog(@"\n\n");
+        NSLog(@"[E] shell name mismatch");
+        NSLog(@"expect: %@", want);
+        NSLog(@" found: %@", name);
+        NSLog(@"\n\n");
+    }
 #endif
     [self.parent handleRequestsIfNeeded];
     usleep(20000); // 50 times each second
@@ -82,7 +92,8 @@
 - (void)destroyLoop {
     [self.associatedTimer invalidate];
     [self.associatedRunLoop removePort:self.associatedPort forMode:NSRunLoopCommonModes];
-    CFRunLoopStop([self.associatedRunLoop getCFRunLoop]);
+    CFRunLoopRef runLoop = [self.associatedRunLoop getCFRunLoop];
+    if (runLoop) { CFRunLoopStop(runLoop); }
 }
 
 @end
