@@ -17,11 +17,6 @@
 #import <Foundation/Foundation.h>
 
 /*
- used for our CI machine, don't remove this if making contribute
- */
-const char NSRemoteShellVersion = "k.S-BrGcrAzymeD6jQ7FdFw6stCZW";
-
-/*
  the buffer size define the size that should read from a socket at a time
  is required to be larger then socket opt size
  
