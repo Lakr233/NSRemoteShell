@@ -23,6 +23,7 @@
 @property (nonatomic, nullable, strong) dispatch_block_t terminationBlock;
 
 @property (nonatomic, readwrite) BOOL channelCompleted;
+@property (nonatomic, readwrite, assign) int exitStatus;
 
 @end
 
@@ -39,6 +40,7 @@
         _representedChannel = representedChannel;
         _channelCompleted = NO;
         _currentTerminalSize = CGSizeMake(0, 0);
+        _exitStatus = 0;
     }
     return self;
 }
@@ -228,6 +230,12 @@
     LIBSSH2_CHANNEL *channel = self.representedChannel;
     self.representedChannel = NULL;
     self.representedSession = NULL;
+    while (libssh2_channel_send_eof(channel) == LIBSSH2_ERROR_EAGAIN) { };
+    while (libssh2_channel_close(channel) == LIBSSH2_ERROR_EAGAIN) { };
+    while (libssh2_channel_wait_closed(channel) == LIBSSH2_ERROR_EAGAIN) { };
+    int es = libssh2_channel_get_exit_status(channel);
+    NSLog(@"channel get exit status returns: %d", es);
+    self.exitStatus = es;
     LIBSSH2_CHANNEL_SHUTDOWN(channel);
     if (self.terminationBlock) { self.terminationBlock(); }
     self.terminationBlock = NULL;

@@ -89,8 +89,22 @@
     NSLog(@"shell object at %p destroy permanently", self);
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
         [self.requestLoopLock lock];
-        [self uncheckedConcurrencyDisconnect];
         [self.associatedLoop destroyLoop];
+        [self uncheckedConcurrencyDisconnect];
+        // so there won't be any connect request semaphore f***ing us
+        for (dispatch_block_t invocation in self.requestInvokations) {
+            if (invocation) { invocation(); }
+        }
+        // call again to make sure no connect invocation
+        [self uncheckedConcurrencyDisconnect];
+        [self.requestInvokations removeAllObjects];
+        // and no more semaphore sitting there in sub channels
+        for (id<NSRemoteOperableObject> object in [self.operableObjects copy]) {
+            [object uncheckedConcurrencyDisconnectAndPrepareForRelease];
+        }
+        [self.operableObjects removeAllObjects];
+        // should cancel any source
+        [self uncheckedConcurrencyDispatchSourceMakeDecision];
         [self.requestLoopLock unlock];
     });
 }
@@ -234,46 +248,47 @@ continue; \
     return self;
 }
 
-- (instancetype)executeRemote:(NSString *)command
-              withExecTimeout:(NSNumber *)timeoutSecond
-                   withOutput:(void (^)(NSString * _Nonnull))responseDataBlock
-      withContinuationHandler:(BOOL (^)(void))continuationBlock
-{
+- (int)beginExecuteWithCommand:(NSString*)withCommand
+                   withTimeout:(NSNumber*)withTimeoutSecond
+                    withOutput:(nullable void (^)(NSString*))withOutput
+       withContinuationHandler:(nullable BOOL (^)(void))withContinuationBlock {
     if (self.destroyed) return;
-    NSLog(@"requesting execute: %@", command);
+    __block int exitCode = 0;
+    NSLog(@"requesting execute: %@", withCommand);
     dispatch_semaphore_t sem = dispatch_semaphore_create(0);
     __weak typeof(self) magic = self;
     @synchronized (self.requestInvokations) {
         id block = [^{
-            [magic uncheckedConcurrencyExecuteRemote:command
-                                     withExecTimeout:timeoutSecond
-                                          withOutput:responseDataBlock
-                             withContinuationHandler:continuationBlock
+            [magic uncheckedConcurrencyExecuteRemote:withCommand
+                                     withExecTimeout:withTimeoutSecond
+                                          withOutput:withOutput
+                             withContinuationHandler:withContinuationBlock
+                                     withSetExitCode:&exitCode
                              withCompletionSemaphore:sem];
         } copy];
         [self.requestInvokations addObject:block];
     }
     [self.associatedLoop explicitRequestHandle];
     dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
-    return self;
+    return exitCode;
 }
 
-- (instancetype)openShellWithTerminal:(nullable NSString*)terminalType
-                     withTerminalSize:(nullable CGSize (^)(void))requestTerminalSize
-                        withWriteData:(nullable NSString* (^)(void))requestWriteData
-                           withOutput:(void (^)(NSString * _Nonnull))responseDataBlock
-              withContinuationHandler:(BOOL (^)(void))continuationBlock
+- (instancetype)beginShellWithTerminalType:(nullable NSString*)withTerminalType
+                          withTerminalSize:(nullable CGSize (^)(void))withRequestTerminalSize
+                       withWriteDataBuffer:(nullable NSString* (^)(void))withWriteDataBuffer
+                      withOutputDataBuffer:(void (^)(NSString * _Nonnull))withOutputDataBuffer
+                   withContinuationHandler:(BOOL (^)(void))withContinuationBlock;
 {
     if (self.destroyed) return;
     dispatch_semaphore_t sem = dispatch_semaphore_create(0);
     __weak typeof(self) magic = self;
     @synchronized (self.requestInvokations) {
         id block = [^{
-            [magic uncheckedConcurrencyOpenShellWithTerminal:terminalType
-                                            withTerminalSize:requestTerminalSize
-                                               withWriteData:requestWriteData
-                                                  withOutput:responseDataBlock
-                                     withContinuationHandler:continuationBlock
+            [magic uncheckedConcurrencyOpenShellWithTerminal:withTerminalType
+                                            withTerminalSize:withRequestTerminalSize
+                                               withWriteData:withWriteDataBuffer
+                                                  withOutput:withOutputDataBuffer
+                                     withContinuationHandler:withContinuationBlock
                                      withCompletionSemaphore:sem];
         } copy];
         [self.requestInvokations addObject:block];
@@ -611,14 +626,18 @@ continue; \
                           withExecTimeout:(NSNumber *)timeoutSecond
                                withOutput:(void (^)(NSString * _Nonnull))responseDataBlock
                   withContinuationHandler:(BOOL (^)(void))continuationBlock
-                  withCompletionSemaphore:(dispatch_semaphore_t)completionSemaphore {
+                          withSetExitCode:(int*)exitCode
+                  withCompletionSemaphore:(dispatch_semaphore_t)completionSemaphore
+{
+    if (exitCode) { *exitCode = 0; }
+    
     if (![self uncheckedConcurrencyValidateSession]) {
         [self uncheckedConcurrencyDisconnect];
-        DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);;
+        DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);
         return;
     }
     if (!self.authenticated) {
-        DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);;
+        DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);
         return;
     }
     LIBSSH2_SESSION *session = self.associatedSession;
@@ -644,7 +663,7 @@ continue; \
     [self uncheckedConcurrencyReadLastError];
     if (!channel) {
         NSLog(@"failed to allocate channel");
-        DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);;
+        DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);
         return;
     }
     NSRemoteChannel *channelObject = [[NSRemoteChannel alloc] initWithRepresentedSession:session
@@ -659,7 +678,7 @@ continue; \
     }
     if (!channelStartupCompleted) {
         [channelObject uncheckedConcurrencyDisconnectAndPrepareForRelease];
-        DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);;
+        DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);
         return;
     }
     
@@ -672,7 +691,8 @@ continue; \
     
     if (completionSemaphore) {
         [channelObject onTermination:^{
-            DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);;
+            *exitCode = channelObject.exitStatus;
+            DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);
         }];
     }
     
@@ -687,11 +707,11 @@ continue; \
                           withCompletionSemaphore:(dispatch_semaphore_t)completionSemaphore {
     if (![self uncheckedConcurrencyValidateSession]) {
         [self uncheckedConcurrencyDisconnect];
-        DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);;
+        DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);
         return;
     }
     if (!self.authenticated) {
-        DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);;
+        DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);
         return;
     }
     LIBSSH2_SESSION *session = self.associatedSession;
@@ -716,7 +736,7 @@ continue; \
     [self uncheckedConcurrencyReadLastError];
     if (!channel) {
         NSLog(@"failed to allocate channel");
-        DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);;
+        DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);
         return;
     }
     NSRemoteChannel *channelObject = [[NSRemoteChannel alloc] initWithRepresentedSession:session
@@ -741,7 +761,7 @@ continue; \
         if (!requestedPty) {
             NSLog(@"failed to request pty");
             [channelObject uncheckedConcurrencyDisconnectAndPrepareForRelease];
-            DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);;
+            DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);
             return;
         }
     } while (0);
@@ -758,14 +778,14 @@ continue; \
         }
         if (!channelStartupCompleted) {
             [channelObject uncheckedConcurrencyDisconnectAndPrepareForRelease];
-            DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);;
+            DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);
             return;
         }
     } while (0);
     
     if (completionSemaphore) {
         [channelObject onTermination:^{
-            DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);;
+            DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);
         }];
     }
     
@@ -792,11 +812,11 @@ continue; \
     
     if (![self uncheckedConcurrencyValidateSession]) {
         [self uncheckedConcurrencyDisconnect];
-        DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);;
+        DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);
         return;
     }
     if (!self.authenticated) {
-        DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);;
+        DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);
         return;
     }
     
@@ -821,7 +841,7 @@ continue; \
     
     if (completionSemaphore) {
         [operator onTermination:^{
-            DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);;
+            DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);
         }];
     }
     
@@ -847,11 +867,11 @@ continue; \
     
     if (![self uncheckedConcurrencyValidateSession]) {
         [self uncheckedConcurrencyDisconnect];
-        DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);;
+        DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);
         return;
     }
     if (!self.authenticated) {
-        DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);;
+        DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);
         return;
     }
     
@@ -896,7 +916,7 @@ continue; \
     
     if (completionSemaphore) {
         [operator onTermination:^{
-            DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);;
+            DISPATCH_SEMAPHORE_CHECK_SIGNLE(completionSemaphore);
         }];
     }
     
