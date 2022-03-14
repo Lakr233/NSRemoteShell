@@ -87,10 +87,12 @@
     if (self.destroyed) { return; }
     self.destroyed = YES;
     NSLog(@"shell object at %p destroy permanently", self);
-    [self.requestLoopLock lock];
-    [self uncheckedConcurrencyDisconnect];
-    [self.associatedLoop destroyLoop];
-    [self.requestLoopLock unlock];
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
+        [self.requestLoopLock lock];
+        [self uncheckedConcurrencyDisconnect];
+        [self.associatedLoop destroyLoop];
+        [self.requestLoopLock unlock];
+    });
 }
 
 - (instancetype)setupConnectionHost:(NSString *)targetHost {
