@@ -230,13 +230,13 @@
     LIBSSH2_CHANNEL *channel = self.representedChannel;
     self.representedChannel = NULL;
     self.representedSession = NULL;
-    while (libssh2_channel_send_eof(channel) == LIBSSH2_ERROR_EAGAIN) { };
-    while (libssh2_channel_close(channel) == LIBSSH2_ERROR_EAGAIN) { };
-    while (libssh2_channel_wait_closed(channel) == LIBSSH2_ERROR_EAGAIN) { };
+    while (libssh2_channel_send_eof(channel) == LIBSSH2_ERROR_EAGAIN) {};
+    while (libssh2_channel_close(channel) == LIBSSH2_ERROR_EAGAIN) {};
+    while (libssh2_channel_wait_closed(channel) == LIBSSH2_ERROR_EAGAIN) {};
     int es = libssh2_channel_get_exit_status(channel);
     NSLog(@"channel get exit status returns: %d", es);
     self.exitStatus = es;
-    LIBSSH2_CHANNEL_SHUTDOWN(channel);
+    while (libssh2_channel_free(channel) == LIBSSH2_ERROR_EAGAIN) {};
     if (self.terminationBlock) { self.terminationBlock(); }
     self.terminationBlock = NULL;
 }
