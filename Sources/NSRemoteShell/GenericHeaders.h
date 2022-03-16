@@ -32,7 +32,7 @@
 
 /*
  the interval for sending keep alive packet, count in second
- [NSRemoteShell uncheckedConcurrencyKeepAliveCheck] will skip
+ [NSRemoteShell unsafeKeepAliveCheck] will skip
  if last success attempt was within the interval
  */
 #define KEEPALIVE_INTERVAL 1
@@ -50,24 +50,24 @@
  */
 #define DISPATCH_SEMAPHORE_MAX_WAIT 30
 #define MakeDispatchSemaphoreWait(SEM) do { \
-    dispatch_time_t timeout = dispatch_time(DISPATCH_TIME_NOW, DISPATCH_SEMAPHORE_MAX_WAIT * NSEC_PER_SEC); \
-    if (dispatch_semaphore_wait((SEM), timeout)) { \
-        NSLog(@"dispatch semaphore wait timeout for %d second, exiting blocked operation", DISPATCH_SEMAPHORE_MAX_WAIT); \
-    } \
+dispatch_time_t timeout = dispatch_time(DISPATCH_TIME_NOW, DISPATCH_SEMAPHORE_MAX_WAIT * NSEC_PER_SEC); \
+if (dispatch_semaphore_wait((SEM), timeout)) { \
+NSLog(@"dispatch semaphore wait timeout for %d second, exiting blocked operation", DISPATCH_SEMAPHORE_MAX_WAIT); \
+} \
 } while (0);
 
 #define DISPATCH_SEMAPHORE_CHECK_SIGNLE(SEM) do { \
-    if ((SEM)) { dispatch_semaphore_signal((SEM)); } \
+if ((SEM)) { dispatch_semaphore_signal((SEM)); } \
 } while (0);
 
 /*
  common used libssh2 channel gracefully shutdown all in one
  */
 #define LIBSSH2_CHANNEL_SHUTDOWN(CHANNEL) do { \
-    while (libssh2_channel_send_eof(CHANNEL) == LIBSSH2_ERROR_EAGAIN) {}; \
-    while (libssh2_channel_close(CHANNEL) == LIBSSH2_ERROR_EAGAIN) {}; \
-    while (libssh2_channel_wait_closed(CHANNEL) == LIBSSH2_ERROR_EAGAIN) {}; \
-    while (libssh2_channel_free(CHANNEL) == LIBSSH2_ERROR_EAGAIN) {}; \
+while (libssh2_channel_send_eof(CHANNEL) == LIBSSH2_ERROR_EAGAIN) {}; \
+while (libssh2_channel_close(CHANNEL) == LIBSSH2_ERROR_EAGAIN) {}; \
+while (libssh2_channel_wait_closed(CHANNEL) == LIBSSH2_ERROR_EAGAIN) {}; \
+while (libssh2_channel_free(CHANNEL) == LIBSSH2_ERROR_EAGAIN) {}; \
 } while (0);
 
 /*
@@ -75,9 +75,20 @@
  
  but libssh2 has this defined so might just use 16 to balance
  #define libssh2_channel_forward_listen(session, port) \
-  libssh2_channel_forward_listen_ex((session), NULL, (port), NULL, 16)
+ libssh2_channel_forward_listen_ex((session), NULL, (port), NULL, 16)
  */
 #define SOCKET_QUEUE_MAXSIZE 16
+
+/*
+ represent how much data shall we send per scp request
+ */
+#define SFTP_BUFFER_SIZE (BUFFER_SIZE)
+
+/*
+ represent how deep we can go while using sftp delete
+ used to prevent app from crash
+ */
+#define SFTP_RECURSIVE_DEPTH 64 // don't use our app to do heavy task!
 
 /*
  defines the event loop handler class for NSRemoteShell
@@ -87,13 +98,13 @@
 // used in event loop call, it's time to handle operations inside this object
 // eg: NSRemoteChannel should read/write to socket, set changes and do anything else
 // is designed to be thread safe when calling
-- (void)uncheckedConcurrencyCallNonblockingOperations;
+- (void)unsafeCallNonblockingOperations;
 
 // used to evaluate if this object should be close and release
 // if a check failed, disconnect is immediately called
-- (BOOL)uncheckedConcurrencyInsanityCheckAndReturnDidSuccess;
+- (BOOL)unsafeInsanityCheckAndReturnDidSuccess;
 
 // shutdown any associated resources and will soon be release
-- (void)uncheckedConcurrencyDisconnectAndPrepareForRelease;
+- (void)unsafeDisconnectAndPrepareForRelease;
 
 @end
