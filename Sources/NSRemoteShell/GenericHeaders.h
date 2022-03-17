@@ -49,7 +49,7 @@
  DONT USE IN RUNNING SESSION/CHANNEL
  */
 #define DISPATCH_SEMAPHORE_MAX_WAIT 30
-#define MakeDispatchSemaphoreWait(SEM) do { \
+#define MakeDispatchSemaphoreWaitWithTimeout(SEM) do { \
 dispatch_time_t timeout = dispatch_time(DISPATCH_TIME_NOW, DISPATCH_SEMAPHORE_MAX_WAIT * NSEC_PER_SEC); \
 if (dispatch_semaphore_wait((SEM), timeout)) { \
 NSLog(@"dispatch semaphore wait timeout for %d second, exiting blocked operation", DISPATCH_SEMAPHORE_MAX_WAIT); \
@@ -88,7 +88,7 @@ while (libssh2_channel_free(CHANNEL) == LIBSSH2_ERROR_EAGAIN) {}; \
  represent how deep we can go while using sftp delete
  used to prevent app from crash
  */
-#define SFTP_RECURSIVE_DEPTH 64 // don't use our app to do heavy task!
+#define SFTP_RECURSIVE_DEPTH 20 // don't use our app to do heavy task!
 
 /*
  defines the event loop handler class for NSRemoteShell

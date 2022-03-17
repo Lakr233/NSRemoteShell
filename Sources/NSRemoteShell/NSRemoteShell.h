@@ -15,7 +15,7 @@ NS_ASSUME_NONNULL_BEGIN
 @interface NSRemoteShell : NSObject
 
 @property (nonatomic, readonly, getter=isConnected) BOOL connected;
-@property (nonatomic, readonly, getter=isConnectedSFTP) BOOL connectedSFTP;
+@property (nonatomic, readonly, getter=isConnectedSFTP) BOOL connectedFileTransfer;
 @property (nonatomic, readonly, getter=isAuthenicated) BOOL authenticated;
 
 @property (nonatomic, readonly, strong) NSString *remoteHost;
@@ -87,13 +87,15 @@ NS_ASSUME_NONNULL_BEGIN
 
 #pragma mark sftp
 
-typedef void (^NSRemoteFileTransferProgressBlock)(NSString*filename, NSProgress* uploadProgress, long bytesPerSecond);
-typedef void (^NSRemoteFileDeleteProgressBlock)(NSString* currentFile);
+typedef void (^NSRemoteFileTransferProgressBlock)(NSString *filename, NSProgress *uploadProgress, long bytesPerSecond);
+typedef void (^NSRemoteFileDeleteProgressBlock)(NSString *currentFile);
 
 - (void)requestConnectFileTransferAndWait;
 - (void)requestDisconnectFileTransferAndWait;
 - (nullable NSArray<NSRemoteFile*>*)requestFileListAt:(NSString*)atDirPath;
 - (nullable NSRemoteFile*)requestFileInfoAt:(NSString*)atPath;
+- (BOOL)requestRenameFileAndWait:(NSString*)atPath
+                     withNewPath:(NSString*)newPath;
 - (BOOL)requestUploadForFileAndWait:(NSString*)atPath
                         toDirectory:(NSString*)toDirectory
                          onProgress:(NSRemoteFileTransferProgressBlock _Nonnull)onProgress

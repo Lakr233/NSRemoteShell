@@ -32,14 +32,15 @@
 @property (nonatomic, readwrite, nullable, strong) NSString *remoteBanner;
 @property (nonatomic, readwrite, nullable, strong) NSString *remoteFingerPrint;
 @property (nonatomic, readwrite, nullable, strong) NSString *lastError;
+@property (nonatomic, readwrite, nullable, strong) NSString *lastFileTransferError;
 
 @property (nonatomic, readwrite, getter=isConnected) BOOL connected;
-@property (nonatomic, readwrite, getter=isConnectedSFTP) BOOL connectedSFTP;
+@property (nonatomic, readwrite, getter=isConnectedSFTP) BOOL connectedFileTransfer;
 @property (nonatomic, readwrite, getter=isAuthenicated) BOOL authenticated;
 
 @property (nonatomic, readwrite, assign) int associatedSocket;
 @property (nonatomic, readwrite, nullable, assign) LIBSSH2_SESSION *associatedSession;
-@property (nonatomic, readwrite, nullable, assign) LIBSSH2_SFTP *associatedSFTP;
+@property (nonatomic, readwrite, nullable, assign) LIBSSH2_SFTP *associatedFileTransfer;
 @property (nonatomic, readwrite, nullable, strong) dispatch_source_t associatedSocketSource;
 
 @property (nonatomic, readwrite, nonnull, strong) NSMutableArray<id<NSRemoteOperableObject>> *operableObjects;
@@ -70,7 +71,7 @@
         _lastError = NULL;
         _associatedSocket = 0;
         _associatedSession = NULL;
-        _associatedSFTP = NULL;
+        _associatedFileTransfer = NULL;
         _operableObjects = [[NSMutableArray alloc] init];
         _requestInvokations = [[NSMutableArray alloc] init];
         _requestLoopLock = [[NSLock alloc] init];
@@ -114,21 +115,21 @@
     });
 }
 
-- (instancetype)setupConnectionHost:(NSString *)targetHost {
+- (instancetype)setupConnectionHost:(NSString*)targetHost {
     @synchronized(self) {
         [self setRemoteHost:targetHost];
     }
     return self;
 }
 
-- (instancetype)setupConnectionPort:(NSNumber *)targetPort {
+- (instancetype)setupConnectionPort:(NSNumber*)targetPort {
     @synchronized(self) {
         [self setRemotePort:targetPort];
     }
     return self;
 }
 
-- (instancetype)setupConnectionTimeout:(NSNumber *)timeout {
+- (instancetype)setupConnectionTimeout:(NSNumber*)timeout {
     if (timeout.doubleValue < 1) {
         NSLog(@"setting timeout value %@ below 1 is not supported", [timeout stringValue]);
 #if DEBUG
@@ -199,7 +200,7 @@ continue; \
         [self.requestInvokations addObject:block];
     }
     [self explicitRequestStatusPickup];
-    MakeDispatchSemaphoreWait(sem)
+    MakeDispatchSemaphoreWaitWithTimeout(sem)
 }
 
 - (void)requestDisconnectAndWait {
@@ -217,7 +218,7 @@ continue; \
     dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
 }
 
-- (void)authenticateWith:(NSString *)username andPassword:(NSString *)password {
+- (void)authenticateWith:(NSString*)username andPassword:(NSString*)password {
     if (self.destroyed) return;
     dispatch_semaphore_t sem = dispatch_semaphore_create(0);
     __weak typeof(self) magic = self;
@@ -230,10 +231,10 @@ continue; \
         [self.requestInvokations addObject:block];
     }
     [self.associatedLoop explicitRequestHandle];
-    MakeDispatchSemaphoreWait(sem)
+    MakeDispatchSemaphoreWaitWithTimeout(sem)
 }
 
-- (void)authenticateWith:(NSString *)username andPublicKey:(NSString *)publicKey andPrivateKey:(NSString *)privateKey andPassword:(NSString *)password {
+- (void)authenticateWith:(NSString*)username andPublicKey:(NSString*)publicKey andPrivateKey:(NSString*)privateKey andPassword:(NSString*)password {
     if (self.destroyed) return;
     dispatch_semaphore_t sem = dispatch_semaphore_create(0);
     __weak typeof(self) magic = self;
@@ -248,7 +249,7 @@ continue; \
         [self.requestInvokations addObject:block];
     }
     [self.associatedLoop explicitRequestHandle];
-    MakeDispatchSemaphoreWait(sem)
+    MakeDispatchSemaphoreWaitWithTimeout(sem)
 }
 
 #pragma exec
@@ -308,9 +309,9 @@ continue; \
 
 #pragma port
 
-- (void)createPortForwardWithLocalPort:(NSNumber *)localPort
-                 withForwardTargetHost:(NSString *)targetHost
-                 withForwardTargetPort:(NSNumber *)targetPort
+- (void)createPortForwardWithLocalPort:(NSNumber*)localPort
+                 withForwardTargetHost:(NSString*)targetHost
+                 withForwardTargetPort:(NSNumber*)targetPort
                           withOnCreate:(dispatch_block_t)withOnCreate
                withContinuationHandler:(BOOL (^)(void))continuationBlock
 {
@@ -332,9 +333,9 @@ continue; \
     dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
 }
 
-- (void)createPortForwardWithRemotePort:(NSNumber *)remotePort
-                  withForwardTargetHost:(NSString *)targetHost
-                  withForwardTargetPort:(NSNumber *)targetPort
+- (void)createPortForwardWithRemotePort:(NSNumber*)remotePort
+                  withForwardTargetHost:(NSString*)targetHost
+                  withForwardTargetPort:(NSNumber*)targetPort
                            withOnCreate:(dispatch_block_t)withOnCreate
                 withContinuationHandler:(BOOL (^)(void))continuationBlock
 {
@@ -364,32 +365,32 @@ continue; \
     __weak typeof(self) magic = self;
     @synchronized (self.requestInvokations) {
         id block = [^{
-            [magic unsafeConnectSFTPWithCompleteBlock:^{
+            [magic unsafeConnectFileTransferWithCompleteBlock:^{
                 DISPATCH_SEMAPHORE_CHECK_SIGNLE(sem);
             }];
         } copy];
         [self.requestInvokations addObject:block];
     }
     [self.associatedLoop explicitRequestHandle];
-    MakeDispatchSemaphoreWait(sem);
+    MakeDispatchSemaphoreWaitWithTimeout(sem);
 }
 - (void)requestDisconnectFileTransferAndWait {
     if (self.destroyed) return;
     dispatch_semaphore_t sem = dispatch_semaphore_create(0);
     @synchronized (self.requestInvokations) {
         id block = [^{
-            [self unsafeSFTPCloseFor:self.associatedSFTP];
-            self.associatedSFTP = NULL;
-            self.connectedSFTP = NO;
+            [self unsafeFileTransferCloseFor:self.associatedFileTransfer];
+            self.associatedFileTransfer = NULL;
+            self.connectedFileTransfer = NO;
             DISPATCH_SEMAPHORE_CHECK_SIGNLE(sem);
         } copy];
         [self.requestInvokations addObject:block];
     }
     [self.associatedLoop explicitRequestHandle];
-    MakeDispatchSemaphoreWait(sem);
+    MakeDispatchSemaphoreWaitWithTimeout(sem);
 }
 
-- (nullable NSArray<NSRemoteFile *> *)requestFileListAt:(NSString *)atDirPath {
+- (nullable NSArray<NSRemoteFile *>*)requestFileListAt:(NSString*)atDirPath {
     if (self.destroyed) return NULL;
     dispatch_semaphore_t sem = dispatch_semaphore_create(0);
     __weak typeof(self) magic = self;
@@ -402,11 +403,10 @@ continue; \
         [self.requestInvokations addObject:block];
     }
     [self.associatedLoop explicitRequestHandle];
-    MakeDispatchSemaphoreWait(sem);
+    MakeDispatchSemaphoreWaitWithTimeout(sem);
     return result;
 }
-
-- (nullable NSRemoteFile *)requestFileInfoAt:(NSString *)atPath {
+- (nullable NSRemoteFile*)requestFileInfoAt:(NSString*)atPath {
     if (self.destroyed) return NULL;
     dispatch_semaphore_t sem = dispatch_semaphore_create(0);
     __weak typeof(self) magic = self;
@@ -419,12 +419,32 @@ continue; \
         [self.requestInvokations addObject:block];
     }
     [self.associatedLoop explicitRequestHandle];
-    MakeDispatchSemaphoreWait(sem);
+    MakeDispatchSemaphoreWaitWithTimeout(sem);
     return result;
 }
 
-- (BOOL)requestUploadForFileAndWait:(NSString *)atPath
-                        toDirectory:(NSString *)toDirectory
+- (BOOL) requestRenameFileAndWait:(NSString *)atPath
+                      withNewPath:(NSString *)newPath
+{
+    if (self.destroyed) return NO;
+    dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+    __weak typeof(self) magic = self;
+    __block BOOL success = NO;
+    @synchronized (self.requestInvokations) {
+        id block = [^{
+            success = [magic unsafeRenameFileAndWait:atPath
+                                         withNewPath:newPath];
+            DISPATCH_SEMAPHORE_CHECK_SIGNLE(sem);
+        } copy];
+        [self.requestInvokations addObject:block];
+    }
+    [self.associatedLoop explicitRequestHandle];
+    MakeDispatchSemaphoreWaitWithTimeout(sem);
+    return success;
+}
+
+- (BOOL)requestUploadForFileAndWait:(NSString*)atPath
+                        toDirectory:(NSString*)toDirectory
                          onProgress:(NSRemoteFileTransferProgressBlock _Nonnull)onProgress
             withContinuationHandler:(BOOL (^)(void))continuationBlock
 {
@@ -448,7 +468,7 @@ continue; \
     return success;
 }
 
-- (BOOL)requestDeleteForFileAndWait:(NSString *)atPath
+- (BOOL)requestDeleteForFileAndWait:(NSString*)atPath
                   withProgressBlock:(NSRemoteFileDeleteProgressBlock _Nonnull)onProgress
             withContinuationHandler:(BOOL (^)(void))continuationBlock
 {
@@ -466,11 +486,11 @@ continue; \
         [self.requestInvokations addObject:block];
     }
     [self.associatedLoop explicitRequestHandle];
-    MakeDispatchSemaphoreWait(sem);
+    dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
     return success;
 }
 
-- (BOOL)requestCreateDirAndWait:(NSString *)atPath
+- (BOOL)requestCreateDirAndWait:(NSString*)atPath
 {
     if (self.destroyed) return NO;
     dispatch_semaphore_t sem = dispatch_semaphore_create(0);
@@ -484,12 +504,12 @@ continue; \
         [self.requestInvokations addObject:block];
     }
     [self.associatedLoop explicitRequestHandle];
-    MakeDispatchSemaphoreWait(sem);
+    MakeDispatchSemaphoreWaitWithTimeout(sem);
     return success;
 }
 
-- (BOOL)requestDownloadFromFileAndWait:(NSString *)atPath
-                           toLocalPath:(NSString *)toPath
+- (BOOL)requestDownloadFromFileAndWait:(NSString*)atPath
+                           toLocalPath:(NSString*)toPath
                             onProgress:(NSRemoteFileTransferProgressBlock)onProgress
                withContinuationHandler:(BOOL (^)(void))continuationBlock
 {
@@ -515,7 +535,7 @@ continue; \
 
 // MARK: - HELPER
 
-- (nullable NSString *)getLastError {
+- (nullable NSString*)getLastError {
     NSString *result;
     @synchronized (self.lastError) {
         result = self.lastError;
@@ -527,7 +547,21 @@ continue; \
     return result;
 }
 
+- (nullable NSString*)getLastFileTransferError {
+    NSString *result;
+    @synchronized (self.lastFileTransferError) {
+        result = self.lastFileTransferError;
+        self.lastFileTransferError = NULL;
+    }
+    if ([result isEqualToString:@""]) {
+        return NULL;
+    }
+    return result;
+}
+
 // MARK: - UNCHECKED CONCURRENCY
+
+#pragma control
 
 - (void)unsafeConnect {
     [self unsafeDisconnect];
@@ -543,7 +577,7 @@ continue; \
     
     self.resolvedRemoteIpAddress = [GenericNetworking getResolvedIpAddressWith:sock];
     
-    LIBSSH2_SESSION *constructorSession = libssh2_session_init_ex(0, 0, 0, (__bridge void *)(self));
+    LIBSSH2_SESSION *constructorSession = libssh2_session_init_ex(0, 0, 0, (__bridge void*)(self));
     if (!constructorSession) {
         [self unsafeDisconnect];
         return;
@@ -608,9 +642,9 @@ continue; \
     }
     self.operableObjects = [[NSMutableArray alloc] init];
     
-    [self unsafeSFTPCloseFor:self.associatedSFTP];
-    self.associatedSFTP = NULL;
-    self.connectedSFTP = NO;
+    [self unsafeFileTransferCloseFor:self.associatedFileTransfer];
+    self.associatedFileTransfer = NULL;
+    self.connectedFileTransfer = NO;
     
     [self unsafeSessionCloseFor:self.associatedSession];
     self.associatedSession = NULL;
@@ -711,7 +745,7 @@ continue; \
     }
 }
 
-- (void)unsafeSFTPCloseFor:(LIBSSH2_SFTP*)sftp {
+- (void)unsafeFileTransferCloseFor:(LIBSSH2_SFTP*)sftp {
     if (!sftp) return;
     while (libssh2_sftp_shutdown(sftp) == LIBSSH2_ERROR_EAGAIN) {};
 }
@@ -739,15 +773,17 @@ continue; \
         if (!self.associatedSession) { break; }
         if (!self.connected) { break; }
         if (!self.isAuthenicated) { break; }
-        if (!self.associatedSFTP) { break; }
+        if (!self.associatedFileTransfer) { break; }
         return YES;
     } while (0);
     [self unsafeDisconnect];
     return NO;
 }
 
-- (void)unsafeAuthenticateWith:(NSString *)username
-                   andPassword:(NSString *)password {
+#pragma auth
+
+- (void)unsafeAuthenticateWith:(NSString*)username
+                   andPassword:(NSString*)password {
     if (![self unsafeValidateSession]) {
         [self unsafeDisconnect];
         return;
@@ -772,10 +808,10 @@ continue; \
     }
 }
 
-- (void)unsafeAuthenticateWith:(NSString *)username
-                  andPublicKey:(NSString *)publicKey
-                 andPrivateKey:(NSString *)privateKey
-                   andPassword:(NSString *)password {
+- (void)unsafeAuthenticateWith:(NSString*)username
+                  andPublicKey:(NSString*)publicKey
+                 andPrivateKey:(NSString*)privateKey
+                   andPassword:(NSString*)password {
     if (![self unsafeValidateSession]) {
         [self unsafeDisconnect];
         return;
@@ -804,8 +840,10 @@ continue; \
     }
 }
 
-- (void)unsafeExecuteRemote:(NSString *)command
-            withExecTimeout:(NSNumber *)timeoutSecond
+#pragma exec
+
+- (void)unsafeExecuteRemote:(NSString*)command
+            withExecTimeout:(NSNumber*)timeoutSecond
                withOnCreate:(dispatch_block_t)withOnCreate
                  withOutput:(void (^)(NSString * _Nonnull))responseDataBlock
     withContinuationHandler:(BOOL (^)(void))continuationBlock
@@ -980,9 +1018,11 @@ continue; \
     if (withOnCreate) { withOnCreate(); }
 }
 
-- (void)unsafeCreatePortForwardWithLocalPort:(NSNumber *)localPort
-                       withForwardTargetHost:(NSString *)targetHost
-                       withForwardTargetPort:(NSNumber *)targetPort
+#pragma forward
+
+- (void)unsafeCreatePortForwardWithLocalPort:(NSNumber*)localPort
+                       withForwardTargetHost:(NSString*)targetHost
+                       withForwardTargetPort:(NSNumber*)targetPort
                                 withOnCreate:(dispatch_block_t)withOnCreate
                      withContinuationHandler:(BOOL (^)(void))continuationBlock
                      withCompletionSemaphore:(dispatch_semaphore_t)completionSemaphore
@@ -1037,9 +1077,9 @@ continue; \
     if (withOnCreate) { withOnCreate(); }
 }
 
-- (void)unsafeCreatePortForwardWithRemotePort:(NSNumber *)remotePort
-                        withForwardTargetHost:(NSString *)targetHost
-                        withForwardTargetPort:(NSNumber *)targetPort
+- (void)unsafeCreatePortForwardWithRemotePort:(NSNumber*)remotePort
+                        withForwardTargetHost:(NSString*)targetHost
+                        withForwardTargetPort:(NSNumber*)targetPort
                                  withOnCreate:(dispatch_block_t)withOnCreate
                       withContinuationHandler:(BOOL (^)(void))continuationBlock
                       withCompletionSemaphore:(dispatch_semaphore_t)completionSemaphore
@@ -1114,7 +1154,9 @@ continue; \
     if (withOnCreate) { withOnCreate(); }
 }
 
-- (void)unsafeConnectSFTPWithCompleteBlock:(dispatch_block_t)withComplete {
+#pragma sftp
+
+- (void)unsafeConnectFileTransferWithCompleteBlock:(dispatch_block_t)withComplete {
     if (![self unsafeValidateSession]) {
         [self unsafeDisconnect];
         if (withComplete) withComplete();
@@ -1148,19 +1190,19 @@ continue; \
     [self unsafeReadLastError];
     if (!sftp) {
         if (withComplete) withComplete();
-        NSLog(@"libssh2_sftp_init was not able to receive session");
+        [self unsafeFileTransferSetErrorForFile:@"null" pathIsRemote:YES failureReason:@"libssh2_sftp_init was not able to receive session"];
         return;
     }
     
-    self.associatedSFTP = sftp;
-    self.connectedSFTP = YES;
+    self.associatedFileTransfer = sftp;
+    self.connectedFileTransfer = YES;
     NSLog(@"libssh2_sftp_init success");
     if (withComplete) withComplete();
 }
 
-- (nullable LIBSSH2_SFTP_HANDLE*)unsafeSFTPOpenDirHandlerWithSession:(LIBSSH2_SESSION*)session
-                                                            withSFTP:(LIBSSH2_SFTP*)sftp
-                                                            withPath:(NSString*)path
+- (nullable LIBSSH2_SFTP_HANDLE*)unsafeFileTransferOpenDirHandlerWithSession:(LIBSSH2_SESSION*)session
+                                                                    withSFTP:(LIBSSH2_SFTP*)sftp
+                                                                    withPath:(NSString*)path
 {
     LIBSSH2_SFTP_HANDLE *handler = NULL;
     NSDate *date = [[NSDate alloc] initWithTimeIntervalSinceNow:[self.operationTimeout intValue]];
@@ -1187,14 +1229,17 @@ continue; \
         break;
     }
     [self unsafeReadLastError];
+    if (!handler) {
+        [self unsafeFileTransferSetErrorForFile:path pathIsRemote:YES failureReason:@"remote permission denied"];
+    }
     return handler;
 }
 
-- (nullable LIBSSH2_SFTP_HANDLE*)unsafeSFTPOpenFileHandlerWithSession:(LIBSSH2_SESSION*)session
-                                                             withSFTP:(LIBSSH2_SFTP*)sftp
-                                                             withPath:(NSString*)path
-                                                             withFlag:(unsigned long)flags
-                                                             withMode:(long)mode
+- (nullable LIBSSH2_SFTP_HANDLE*)unsafeFileTransferOpenFileHandlerWithSession:(LIBSSH2_SESSION*)session
+                                                                     withSFTP:(LIBSSH2_SFTP*)sftp
+                                                                     withPath:(NSString*)path
+                                                                     withFlag:(unsigned long)flags
+                                                                     withMode:(long)mode
 {
     LIBSSH2_SFTP_HANDLE *handler = NULL;
     NSDate *date = [[NSDate alloc] initWithTimeIntervalSinceNow:[self.operationTimeout intValue]];
@@ -1221,18 +1266,24 @@ continue; \
         break;
     }
     [self unsafeReadLastError];
+    if (!handler) {
+        [self unsafeFileTransferSetErrorForFile:path pathIsRemote:YES failureReason:@"remote permission denied"];
+    }
     return handler;
 }
 
 - (nullable NSArray<NSRemoteFile*>*)unsafeGetDirFileListAt:(NSString*)withDirPath {
-    if (![self unsafeValidateSessionSFTP]) { return NULL; }
+    if (![self unsafeValidateSessionSFTP]) {
+        [self unsafeFileTransferSetErrorForFile:withDirPath pathIsRemote:YES failureReason:@"connection broken"];
+        return NULL;
+    }
     LIBSSH2_SESSION *session = self.associatedSession;
-    LIBSSH2_SFTP *sftp = self.associatedSFTP;
-    LIBSSH2_SFTP_HANDLE *handle = [self unsafeSFTPOpenDirHandlerWithSession:session
-                                                                   withSFTP:sftp
-                                                                   withPath:withDirPath];
+    LIBSSH2_SFTP *sftp = self.associatedFileTransfer;
+    LIBSSH2_SFTP_HANDLE *handle = [self unsafeFileTransferOpenDirHandlerWithSession:session
+                                                                           withSFTP:sftp
+                                                                           withPath:withDirPath];
     if (!handle) {
-        NSLog(@"SFTP failed to open handler for dir: %@", withDirPath);
+        [self unsafeFileTransferSetErrorForFile:withDirPath pathIsRemote:YES failureReason:@"remote permission denied"];
         return NULL;
     }
     
@@ -1266,11 +1317,11 @@ continue; \
         }
     } while (rc > 0);
     
+    while (libssh2_sftp_closedir(handle) == LIBSSH2_ERROR_EAGAIN) {};
     if (rc < 0) {
-        NSLog(@"SFTP failed to open handler for dir: %@", withDirPath);
+        [self unsafeFileTransferSetErrorForFile:withDirPath pathIsRemote:YES failureReason:@"remote permission denied"];
         return NULL;
     }
-    while (libssh2_sftp_closedir(handle) == LIBSSH2_ERROR_EAGAIN) {};
     [contents sortUsingDescriptors: @[
         [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES]
     ]];
@@ -1279,16 +1330,19 @@ continue; \
 
 - (nullable NSRemoteFile*)unsafeGetFileInfo:(NSString*)atPath
 {
-    if (![self unsafeValidateSessionSFTP]) { return NULL; }
+    if (![self unsafeValidateSessionSFTP]) {
+        [self unsafeFileTransferSetErrorForFile:atPath pathIsRemote:YES failureReason:@"connection broken"];
+        return NULL;
+    }
     LIBSSH2_SESSION *session = self.associatedSession;
-    LIBSSH2_SFTP *sftp = self.associatedSFTP;
-    LIBSSH2_SFTP_HANDLE *handle = [self unsafeSFTPOpenFileHandlerWithSession:session
-                                                                    withSFTP:sftp
-                                                                    withPath:atPath
-                                                                    withFlag:LIBSSH2_FXF_READ
-                                                                    withMode:0];
+    LIBSSH2_SFTP *sftp = self.associatedFileTransfer;
+    LIBSSH2_SFTP_HANDLE *handle = [self unsafeFileTransferOpenFileHandlerWithSession:session
+                                                                            withSFTP:sftp
+                                                                            withPath:atPath
+                                                                            withFlag:LIBSSH2_FXF_READ
+                                                                            withMode:0];
     if (!handle) {
-        NSLog(@"SFTP failed to open handler for file: %@", atPath);
+        [self unsafeFileTransferSetErrorForFile:atPath pathIsRemote:YES failureReason:@"remote permission denied"];
         return NULL;
     }
     
@@ -1310,21 +1364,21 @@ continue; \
         }
         break;
     }
-    if (!statSuccess) {
-        NSLog(@"SFTP failed to call fstat for file: %@", atPath);
-        return NULL;
-    }
-    
-    NSRemoteFile *file = [[NSRemoteFile alloc] initWithFilename:atPath.lastPathComponent];
-    [file populateAttributes:fileAttributes];
     
     while (libssh2_sftp_closedir(handle) == LIBSSH2_ERROR_EAGAIN) {};
+    
+    if (!statSuccess) {
+        [self unsafeFileTransferSetErrorForFile:atPath pathIsRemote:YES failureReason:@"remote permission denied"];
+        return NULL;
+    }
+    NSRemoteFile *file = [[NSRemoteFile alloc] initWithFilename:atPath.lastPathComponent];
+    [file populateAttributes:fileAttributes];
     
     return file;
 }
 
-- (BOOL)unsafeUploadForFile:(NSString *)atPath
-                toDirectory:(NSString *)toDirectory
+- (BOOL)unsafeUploadForFile:(NSString*)atPath
+                toDirectory:(NSString*)toDirectory
                  onProgress:(NSRemoteFileTransferProgressBlock _Nonnull)onProgress
     withContinuationHandler:(BOOL (^)(void))continuationBlock
 {
@@ -1338,7 +1392,7 @@ continue; \
     BOOL isDir = NO;
     BOOL exists = [[NSFileManager defaultManager] fileExistsAtPath:localFile.path isDirectory:&isDir];
     if (!exists) {
-        NSLog(@"file not exists on path %@", localFile.path);
+        [self unsafeFileTransferSetErrorForFile:localFile.path pathIsRemote:NO failureReason:@"file not found"];
         return NO;
     }
     
@@ -1346,13 +1400,15 @@ continue; \
     LIBSSH2_SESSION *session = self.associatedSession;
     
     if (isDir) {
-        NSLog(@"this function does not support upload directory");
+        [self unsafeFileTransferSetErrorForFile:localFile.path
+                                   pathIsRemote:NO
+                                  failureReason:@"this function does not support upload directory"];
         return NO;
     }
     NSLog(@"requesting upload file at %@ to %@", localFile.path, remoteFile.path);
     FILE *f = fopen([localFile.path UTF8String], "rb");
     if (!f) {
-        NSLog(@"failed to open file");
+        [self unsafeFileTransferSetErrorForFile:localFile.path pathIsRemote:NO failureReason:@"failed to read"];
         return NO;
     }
     struct stat fi;
@@ -1384,7 +1440,7 @@ continue; \
     }
     [self unsafeReadLastError];
     if (!channel) {
-        NSLog(@"scp channel failed to allocate");
+        [self unsafeFileTransferSetErrorForFile:localFile.path pathIsRemote:NO failureReason:@"remote permission denied"];
         return NO;
     }
     
@@ -1441,7 +1497,9 @@ continue; \
     [self unsafeReadLastError];
     
     if (sent_size < total_size) {
-        NSLog(@"warning: transport sent did not write enough data");
+        [self unsafeFileTransferSetErrorForFile:localFile.path
+                                   pathIsRemote:NO
+                                  failureReason:@"transport sent did not write enough data"];
     }
     
     fclose(f);
@@ -1451,68 +1509,80 @@ continue; \
         NSProgress *progress = [[NSProgress alloc] init];
         [progress setTotalUnitCount:total_size];
         [progress setCompletedUnitCount:total_size];
-        onProgress(atPath, progress, 0);
+        NSTimeInterval interval = [[[NSDate alloc] init] timeIntervalSinceDate:begin];
+        double speed = 0;
+        if (interval != 0) {
+            speed = sent_size / interval;
+        }
+        onProgress(atPath, progress, speed);
     }
     return sent_size == total_size;
 }
 
-- (BOOL)unsafeUploadRecursiveForFile:(NSString *)atPath
-                         toDirectory:(NSString *)toDirectory
+- (BOOL)unsafeUploadRecursiveForFile:(NSString*)atPath
+                         toDirectory:(NSString*)toDirectory
                           onProgress:(NSRemoteFileTransferProgressBlock _Nonnull)onProgress
              withContinuationHandler:(BOOL (^)(void))continuationBlock
                                depth:(int)depth
 {
-    if (continuationBlock && !continuationBlock()) {
-        return NO;
-    }
-    BOOL isDir = NO;
-    BOOL exists = [NSFileManager.defaultManager fileExistsAtPath:atPath isDirectory:&isDir];
-    if (!exists) {
-        NSLog(@"file not exists at %@", atPath);
-        return NO;
-    }
-    
-    if (isDir) {
-        NSError *error = NULL;
-        NSArray *content = [NSFileManager.defaultManager contentsOfDirectoryAtPath:atPath
-                                                                             error:&error];
-        if (error) {
-            NSLog(@"failed to list content of dir at %@", content);
+    @autoreleasepool {
+        if (depth > SFTP_RECURSIVE_DEPTH) {
+            [self unsafeFileTransferSetErrorForFile:atPath pathIsRemote:NO failureReason:@"too many items inside dir"];
             return NO;
         }
-        NSURL *localBase = [[NSURL alloc] initFileURLWithPath:atPath];
-        NSURL *remoteBase = [[[NSURL alloc] initFileURLWithPath:toDirectory]
-                             URLByAppendingPathComponent:localBase.lastPathComponent];
-        // now create dir on remote
-        if (![self unsafeCreateDirAndWait:remoteBase.path]) {
-            NSLog(@"failed to create dir at remote %@", remoteBase.path);
+        if (continuationBlock && !continuationBlock()) {
+            [self unsafeFileTransferSetErrorForFile:atPath pathIsRemote:NO failureReason:@"user cancel"];
             return NO;
         }
-        for (NSString *file in content) {
-            NSURL *atPath = [localBase URLByAppendingPathComponent:file];
-            NSURL *toDir = remoteBase;
-            BOOL ret = [self unsafeUploadRecursiveForFile:atPath.path
-                                                        toDirectory:toDir.path
-                                                         onProgress:onProgress
-                                            withContinuationHandler:continuationBlock
-                                                              depth:depth + 1];
-            if (!ret) { return NO; }
+        BOOL isDir = NO;
+        BOOL exists = [NSFileManager.defaultManager fileExistsAtPath:atPath isDirectory:&isDir];
+        if (!exists) {
+            [self unsafeFileTransferSetErrorForFile:atPath pathIsRemote:NO failureReason:@"file not found"];
+            return NO;
         }
-        return YES;
-    } else {
-        return [self unsafeUploadForFile:atPath
-                             toDirectory:toDirectory
-                              onProgress:onProgress
-                 withContinuationHandler:continuationBlock];
+        
+        if (isDir) {
+            NSError *error = NULL;
+            NSArray *content = [NSFileManager.defaultManager contentsOfDirectoryAtPath:atPath
+                                                                                 error:&error];
+            if (error) {
+                [self unsafeFileTransferSetErrorForFile:atPath pathIsRemote:NO failureReason:@"permission denied"];
+                return NO;
+            }
+            NSURL *localBase = [[NSURL alloc] initFileURLWithPath:atPath];
+            NSURL *remoteBase = [[[NSURL alloc] initFileURLWithPath:toDirectory]
+                                 URLByAppendingPathComponent:localBase.lastPathComponent];
+            // now create dir on remote
+            if (![self unsafeCreateDirAndWait:remoteBase.path]) {
+                [self unsafeFileTransferSetErrorForFile:remoteBase.path pathIsRemote:YES failureReason:@"remote permission denied"];
+                return NO;
+            }
+            for (NSString *file in content) {
+                NSURL *atPath = [localBase URLByAppendingPathComponent:file];
+                NSURL *toDir = remoteBase;
+                BOOL ret = [self unsafeUploadRecursiveForFile:atPath.path
+                                                  toDirectory:toDir.path
+                                                   onProgress:onProgress
+                                      withContinuationHandler:continuationBlock
+                                                        depth:depth + 1];
+                if (!ret) { return NO; }
+            }
+            return YES;
+        } else {
+            return [self unsafeUploadForFile:atPath
+                                 toDirectory:toDirectory
+                                  onProgress:onProgress
+                     withContinuationHandler:continuationBlock];
+        }
     }
 }
 
-- (BOOL)unsafeDeleteForFile:(NSString *)atPath
+- (BOOL)unsafeDeleteForFile:(NSString*)atPath
           withProgressBlock:(NSRemoteFileDeleteProgressBlock _Nonnull)onProgress
     withContinuationHandler:(BOOL (^)(void))continuationBlock
 {
     if (![atPath hasPrefix:@"/"] || atPath.length < 1) {
-        NSLog(@"file does not begin with /");
+        [self unsafeFileTransferSetErrorForFile:atPath pathIsRemote:YES failureReason:@"invalid parameters"];
         return NO;
     }
     
@@ -1522,7 +1592,7 @@ continue; \
     
     if (![self unsafeValidateSessionSFTP]) { return NO; }
     LIBSSH2_SESSION *session = self.associatedSession;
-    LIBSSH2_SFTP *sftp = self.associatedSFTP;
+    LIBSSH2_SFTP *sftp = self.associatedFileTransfer;
     NSLog(@"removing file %@", atPath);
     
     return [self unsafeDeleteRecursivelyForPathAndReturnContinue:atPath
@@ -1533,10 +1603,10 @@ continue; \
                                          withContinuationHandler:continuationBlock];
 }
 
-- (BOOL)unsafeCreateDirAndWait:(NSString *)atPath
+- (BOOL)unsafeCreateDirAndWait:(NSString*)atPath
 {
     if (![atPath hasPrefix:@"/"] || atPath.length < 1) {
-        NSLog(@"file does not begin with /");
+        [self unsafeFileTransferSetErrorForFile:atPath pathIsRemote:YES failureReason:@"invalid parameter"];
         return NO;
     }
     
@@ -1544,9 +1614,12 @@ continue; \
     assert(atPath.length > 1);
 #endif
     
-    if (![self unsafeValidateSessionSFTP]) { return NO; }
+    if (![self unsafeValidateSessionSFTP]) {
+        [self unsafeFileTransferSetErrorForFile:atPath pathIsRemote:YES failureReason:@"connection broken"];
+        return NO;
+    }
     LIBSSH2_SESSION *session = self.associatedSession;
-    LIBSSH2_SFTP *sftp = self.associatedSFTP;
+    LIBSSH2_SFTP *sftp = self.associatedFileTransfer;
     NSLog(@"creating dir %@", atPath);
     
     // before we create, ask to check if already exists
@@ -1576,7 +1649,11 @@ continue; \
         break;
     }
     [self unsafeReadLastError];
-    return rc == 0;
+    if (rc != 0) {
+        [self unsafeFileTransferSetErrorForFile:atPath pathIsRemote:YES failureReason:@"remote permission denied"];
+        return NO;
+    }
+    return YES;
 }
 
 - (BOOL)unsafeDeleteRecursivelyForPathAndReturnContinue:(NSString*)atPath
@@ -1587,10 +1664,11 @@ continue; \
                                 withContinuationHandler:(BOOL (^)(void))continuationBlock
 {
     if (depth > SFTP_RECURSIVE_DEPTH) {
-        NSLog(@"max recursive depth arrived, giving up!");
+        [self unsafeFileTransferSetErrorForFile:atPath pathIsRemote:YES failureReason:@"too many items inside dir"];
         return NO;
     }
     if (continuationBlock && !continuationBlock()) {
+        [self unsafeFileTransferSetErrorForFile:atPath pathIsRemote:YES failureReason:@"user cancel"];
         return NO;
     }
     
@@ -1609,9 +1687,7 @@ continue; \
                                                                        depth:depth + 1
                                                            withProgressBlock:onProgress
                                                      withContinuationHandler:continuationBlock];
-            if (!ret) {
-                return NO;
-            }
+            if (!ret) { return NO; }
         }
         NSLog(@"calling rmdir at %@", atPath);
         if (onProgress) { onProgress(atPath); }
@@ -1629,7 +1705,11 @@ continue; \
             break;
         }
         [self unsafeReadLastError];
-        return rc == 0;
+        if (rc != 0) {
+            [self unsafeFileTransferSetErrorForFile:atPath pathIsRemote:YES failureReason:@"remote permission denied"];
+            return NO;
+        }
+        return YES;
     } else {
         NSLog(@"calling unlink at %@", atPath);
         if (onProgress) { onProgress(atPath); }
@@ -1647,12 +1727,16 @@ continue; \
             break;
         }
         [self unsafeReadLastError];
-        return rc == 0;
+        if (rc != 0) {
+            [self unsafeFileTransferSetErrorForFile:atPath pathIsRemote:YES failureReason:@"remote permission denied"];
+            return NO;
+        }
+        return YES;
     }
 }
 
-- (BOOL)unsafeDownloadFromFileAndWait:(NSString *)atFullPath // full path
-                          toLocalPath:(NSString *)toFullPath // full path
+- (BOOL)unsafeDownloadFromFileAndWait:(NSString*)atFullPath // full path
+                          toLocalPath:(NSString*)toFullPath // full path
                            onProgress:(NSRemoteFileTransferProgressBlock)onProgress
               withContinuationHandler:(BOOL (^)(void))continuationBlock
 {
@@ -1665,16 +1749,19 @@ continue; \
     
     //    NSLog(@"%@ to %@", remoteFile.path, localFile.path);
     
-    if (![self unsafeValidateSessionSFTP]) { return NO; }
+    if (![self unsafeValidateSessionSFTP]) {
+        [self unsafeFileTransferSetErrorForFile:atFullPath pathIsRemote:YES failureReason:@"broken connection"];
+        return NO;
+    }
     LIBSSH2_SESSION *session = self.associatedSession;
-    LIBSSH2_SFTP *sftp = self.associatedSFTP;
-    LIBSSH2_SFTP_HANDLE *handle = [self unsafeSFTPOpenFileHandlerWithSession:session
-                                                                    withSFTP:sftp
-                                                                    withPath:atPath
-                                                                    withFlag:LIBSSH2_FXF_READ
-                                                                    withMode:0];
+    LIBSSH2_SFTP *sftp = self.associatedFileTransfer;
+    LIBSSH2_SFTP_HANDLE *handle = [self unsafeFileTransferOpenFileHandlerWithSession:session
+                                                                            withSFTP:sftp
+                                                                            withPath:atPath
+                                                                            withFlag:LIBSSH2_FXF_READ
+                                                                            withMode:0];
     if (!handle) {
-        NSLog(@"SFTP failed to open handler for file: %@", atPath);
+        [self unsafeFileTransferSetErrorForFile:atFullPath pathIsRemote:YES failureReason:@"broken connection"];
         return NO;
     }
     NSLog(@"downloading file %@ to %@", atPath, toPath);
@@ -1703,7 +1790,7 @@ continue; \
     [self unsafeReadLastError];
     if (!channel) {
         libssh2_sftp_close_handle(handle);
-        NSLog(@"receive channel failed to allocated");
+        [self unsafeFileTransferSetErrorForFile:atFullPath pathIsRemote:YES failureReason:@"broken connection"];
         return NO;
     }
     
@@ -1711,7 +1798,7 @@ continue; \
     if (!f) {
         LIBSSH2_CHANNEL_SHUTDOWN(channel);
         libssh2_sftp_close_handle(handle);
-        NSLog(@"receive channel failed to allocated");
+        [self unsafeFileTransferSetErrorForFile:atFullPath pathIsRemote:YES failureReason:@"broken connection"];
         return NO;
     }
     
@@ -1776,10 +1863,17 @@ continue; \
         NSProgress *progress = [[NSProgress alloc] init];
         [progress setTotalUnitCount:fi.st_size];
         [progress setCompletedUnitCount:recv_size];
-        onProgress(remoteFile.path, progress, 0);
+        NSTimeInterval interval = [[[NSDate alloc] init] timeIntervalSinceDate:begin];
+        long long speed = 0;
+        if (interval) {
+            speed = recv_size / interval;
+        }
+        onProgress(remoteFile.path, progress, speed);
     }
     if (recv_size != fi.st_size) {
-        NSLog(@"warning: transport receive did not write full data");
+        [self unsafeFileTransferSetErrorForFile:atFullPath
+                                   pathIsRemote:YES
+                                  failureReason:@"transport receive did not write full data"];
     }
     [self unsafeReadLastError];
     
@@ -1790,97 +1884,163 @@ continue; \
 }
 
 - (BOOL)unsafeDownloadRecursiveAtPath:(NSString*)atPath
-                          toLocalPath:(NSString *)toPath // target path, full path or inherit name from target
+                          toLocalPath:(NSString*)toPath // target path, full path or inherit name from target
                            onProgress:(NSRemoteFileTransferProgressBlock)onProgress
               withContinuationHandler:(BOOL (^)(void))continuationBlock
                                 depth:(int)depth
 {
-    if (depth > SFTP_RECURSIVE_DEPTH) {
-        return NO;
-    }
-    if (continuationBlock && !continuationBlock()) {
-        return NO;
-    }
-    
-    atPath = [atPath stringByExpandingTildeInPath];
-    
-    NSURL *remoteFile = [[NSURL alloc] initFileURLWithPath:atPath];
-    NSURL *localFile = [[NSURL alloc] initFileURLWithPath:toPath];
-    
-    // inherit filename from remote file path
-    if ([toPath hasSuffix:@"/"]) {
-        localFile = [localFile URLByAppendingPathComponent:atPath.lastPathComponent];
-    }
-    
-    // now make sure the dir exists
-    do {
-        NSURL *dir = [localFile URLByDeletingLastPathComponent];
-        [NSFileManager.defaultManager createDirectoryAtURL:dir
-                               withIntermediateDirectories:YES
-                                                attributes:NULL
-                                                     error:NULL];
-        BOOL isDir;
-        BOOL exists = [NSFileManager.defaultManager fileExistsAtPath:dir.path
-                                                         isDirectory:&isDir];
-        if (!exists || !isDir) {
-            NSLog(@"permission denied on parent dir %@ exists: %@ isDir: %@",
-                  dir.path,
-                  exists ? @"YES" : @"NO",
-                  isDir ? @"YES" : @"NO");
+    @autoreleasepool {
+        if (depth > SFTP_RECURSIVE_DEPTH) {
+            [self unsafeFileTransferSetErrorForFile:atPath pathIsRemote:YES failureReason:@"too many items inside dir"];
             return NO;
         }
-    } while (false);
-    
-    // get list from remote
-    NSRemoteFile *file = [self unsafeGetFileInfo:atPath];
-    if (file && file.isDirectory) {
-        NSArray<NSRemoteFile*> *array = [self unsafeGetDirFileListAt:atPath];
-        if (!array) {
-            NSLog(@"unable to get contents of directory");
+        if (continuationBlock && !continuationBlock()) {
+            [self unsafeFileTransferSetErrorForFile:atPath pathIsRemote:YES failureReason:@"user canceled"];
             return NO;
         }
-        // now because it is a directory, we create one on our local path
-        NSURL *localBase = localFile; // don't remove this, it will make code cleaner
-        // TODO: Copy All File Attribute
-        NSLog(@"creating dir %@ to %@", remoteFile.path, localBase.path);
-        [NSFileManager.defaultManager createDirectoryAtURL:localBase
-                               withIntermediateDirectories:YES
-                                                attributes:NULL
-                                                     error:NULL];
-        BOOL isDir = NO;
-        BOOL exists = [NSFileManager.defaultManager fileExistsAtPath:localBase.path isDirectory:&isDir];
-        if (!exists || !isDir) {
-            NSLog(@"permission denied: failed to create local dir");
-            return NO;
+        
+        atPath = [atPath stringByExpandingTildeInPath];
+        
+        NSURL *remoteFile = [[NSURL alloc] initFileURLWithPath:atPath];
+        NSURL *localFile = [[NSURL alloc] initFileURLWithPath:toPath];
+        
+        // inherit filename from remote file path
+        if ([toPath hasSuffix:@"/"]) {
+            localFile = [localFile URLByAppendingPathComponent:atPath.lastPathComponent];
         }
-        NSURL *base = [[NSURL alloc] initFileURLWithPath:atPath];
-        for (NSRemoteFile *file in array) {
-            NSURL *targetPath = [base URLByAppendingPathComponent:file.name];
-            NSURL *localTargetPath = [localBase URLByAppendingPathComponent:file.name];
-            int ret = [self unsafeDownloadRecursiveAtPath:targetPath.path
-                                              toLocalPath:localTargetPath.path
-                                               onProgress:onProgress
-                                  withContinuationHandler:continuationBlock
-                                                    depth:depth + 1];
-            if (!ret) { return NO; }
-        }
-        return YES;
-    } else {
-        // treat anything else as regular file or we will handle error later on
-        // now because it is a "regular" file, overwrite requires to remove it
-        BOOL exists = [[NSFileManager defaultManager] fileExistsAtPath:localFile.path];
-        if (exists) {
-            NSError *error = NULL;
-            [NSFileManager.defaultManager removeItemAtURL:localFile error:&error];
-            if (error) {
-                NSLog(@"removing existsing file at %@ failed with error %@", localFile.path, error.localizedDescription);
+        
+        // now make sure the dir exists
+        do {
+            NSURL *dir = [localFile URLByDeletingLastPathComponent];
+            [NSFileManager.defaultManager createDirectoryAtURL:dir
+                                   withIntermediateDirectories:YES
+                                                    attributes:NULL
+                                                         error:NULL];
+            BOOL isDir;
+            BOOL exists = [NSFileManager.defaultManager fileExistsAtPath:dir.path
+                                                             isDirectory:&isDir];
+            if (!exists || !isDir) {
+                [self unsafeFileTransferSetErrorForFile:dir.path pathIsRemote:NO failureReason:@"permission denied"];
                 return NO;
             }
+        } while (false);
+        
+        // get list from remote
+        NSRemoteFile *file = [self unsafeGetFileInfo:atPath];
+        if (file && file.isDirectory) {
+            NSArray<NSRemoteFile*> *array = [self unsafeGetDirFileListAt:atPath];
+            if (!array) {
+                [self unsafeFileTransferSetErrorForFile:atPath pathIsRemote:YES failureReason:@"failed to retrieve information"];
+                return NO;
+            }
+            // now because it is a directory, we create one on our local path
+            NSURL *localBase = localFile; // don't remove this, it will make code cleaner
+            // TODO: Copy All File Attribute
+            NSLog(@"creating dir %@ to %@", remoteFile.path, localBase.path);
+            [NSFileManager.defaultManager createDirectoryAtURL:localBase
+                                   withIntermediateDirectories:YES
+                                                    attributes:NULL
+                                                         error:NULL];
+            BOOL isDir = NO;
+            BOOL exists = [NSFileManager.defaultManager fileExistsAtPath:localBase.path isDirectory:&isDir];
+            if (!exists || !isDir) {
+                [self unsafeFileTransferSetErrorForFile:localBase.path pathIsRemote:NO failureReason:@"permission denied"];
+                return NO;
+            }
+            NSURL *base = [[NSURL alloc] initFileURLWithPath:atPath];
+            for (NSRemoteFile *file in array) {
+                NSURL *targetPath = [base URLByAppendingPathComponent:file.name];
+                NSURL *localTargetPath = [localBase URLByAppendingPathComponent:file.name];
+                int ret = [self unsafeDownloadRecursiveAtPath:targetPath.path
+                                                  toLocalPath:localTargetPath.path
+                                                   onProgress:onProgress
+                                      withContinuationHandler:continuationBlock
+                                                        depth:depth + 1];
+                if (!ret) { return NO; }
+            }
+            return YES;
+        } else {
+            // treat anything else as regular file or we will handle error later on
+            // now because it is a "regular" file, overwrite requires to remove it
+            BOOL exists = [[NSFileManager defaultManager] fileExistsAtPath:localFile.path];
+            if (exists) {
+                NSError *error = NULL;
+                [NSFileManager.defaultManager removeItemAtURL:localFile error:&error];
+                if (error) {
+                    [self unsafeFileTransferSetErrorForFile:localFile.path pathIsRemote:NO failureReason:@"permission denied"];
+                    return NO;
+                }
+            }
+            return [self unsafeDownloadFromFileAndWait:remoteFile.path
+                                           toLocalPath:localFile.path
+                                            onProgress:onProgress
+                               withContinuationHandler:continuationBlock];
         }
-        return [self unsafeDownloadFromFileAndWait:remoteFile.path
-                                       toLocalPath:localFile.path
-                                        onProgress:onProgress
-                           withContinuationHandler:continuationBlock];
+    }
+}
+
+- (BOOL)unsafeRenameFileAndWait:(NSString *)atPath
+                    withNewPath:(NSString *)newPath
+{
+    if (![atPath hasPrefix:@"/"] || atPath.length < 1 || ![newPath hasPrefix:@"/"] || newPath.length < 1) {
+        [self unsafeFileTransferSetErrorForFile:atPath pathIsRemote:YES failureReason:@"invalid parameter"];
+        return NO;
+    }
+    
+#if DEBUG
+    assert(atPath.length > 1);
+    assert(newPath.length > 1);
+#endif
+    
+    if (![self unsafeValidateSessionSFTP]) {
+        [self unsafeFileTransferSetErrorForFile:atPath pathIsRemote:YES failureReason:@"connection broken"];
+        return NO;
+    }
+    LIBSSH2_SESSION *session = self.associatedSession;
+    LIBSSH2_SFTP *sftp = self.associatedFileTransfer;
+    NSLog(@"rename %@ to %@", atPath, newPath);
+    
+    NSDate *date = [[NSDate alloc] initWithTimeIntervalSinceNow:[self.operationTimeout intValue]];
+    long long rc = 0;
+    while (true) {
+        if ([date timeIntervalSinceNow] < 0) {
+            libssh2_session_set_last_error(session, LIBSSH2_ERROR_TIMEOUT, NULL);
+            break;
+        }
+        int mode = 0
+        | LIBSSH2_SFTP_RENAME_OVERWRITE
+        | LIBSSH2_SFTP_RENAME_ATOMIC
+        | LIBSSH2_SFTP_RENAME_NATIVE;
+        rc = libssh2_sftp_rename_ex(sftp,
+                                    atPath.UTF8String,
+                                    (unsigned int)(atPath.length),
+                                    newPath.UTF8String,
+                                    (unsigned int)(newPath.length),
+                                    mode);
+        if (rc == LIBSSH2_ERROR_EAGAIN) {
+            continue;
+        }
+        break;
+    }
+    [self unsafeReadLastError];
+    if (rc != 0) {
+        [self unsafeFileTransferSetErrorForFile:atPath pathIsRemote:YES failureReason:@"remote permission denied"];
+        return NO;
+    }
+    return YES;
+}
+
+- (void)unsafeFileTransferSetErrorForFile:(NSString*)filePath
+                             pathIsRemote:(BOOL)pathIsRemote
+                            failureReason:(NSString*)failureReason
+{
+    NSString *description = [[NSString alloc] initWithFormat:@"%@ raising error %@ with file at path %@",
+                             pathIsRemote ? @"remote" : @"local",
+                             failureReason,
+                             filePath];
+    NSLog(@"%@", description);
+    @synchronized (self.lastFileTransferError) {
+        self.lastFileTransferError = description;
     }
 }
 
