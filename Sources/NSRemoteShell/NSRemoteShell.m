@@ -35,8 +35,8 @@
 @property (nonatomic, readwrite, nullable, strong) NSString *lastFileTransferError;
 
 @property (nonatomic, readwrite, getter=isConnected) BOOL connected;
-@property (nonatomic, readwrite, getter=isConnectedSFTP) BOOL connectedFileTransfer;
-@property (nonatomic, readwrite, getter=isAuthenicated) BOOL authenticated;
+@property (nonatomic, readwrite, getter=isConnectedFileTransfer) BOOL connectedFileTransfer;
+@property (nonatomic, readwrite, getter=isAuthenticated) BOOL authenticated;
 
 @property (nonatomic, readwrite, assign) int associatedSocket;
 @property (nonatomic, readwrite, nullable, assign) LIBSSH2_SESSION *associatedSession;
@@ -205,6 +205,18 @@ continue; \
 
 - (void)requestDisconnectAndWait {
     if (self.destroyed) return;
+    
+    /*
+     kill these values so we will clean the things up if in fly
+     especially for file transfer
+     the loop for read and loop for write will check the connectedFileTransfer
+     each time before execution io rw
+     so we won't wait too much time before f**k up
+     */
+    self.connected = NO;
+    self.connectedFileTransfer = NO;
+    self.authenticated = NO;
+    
     dispatch_semaphore_t sem = dispatch_semaphore_create(0);
     __weak typeof(self) magic = self;
     @synchronized (self.requestInvokations) {
@@ -596,6 +608,7 @@ continue; \
         }
         long rc = libssh2_session_handshake(constructorSession, sock);
         if (rc == LIBSSH2_ERROR_EAGAIN) {
+            usleep(LIBSSH2_CONTINUE_EAGAIN_WAIT);
             continue;
         }
         sessionHandshakeComplete = (rc == 0);
@@ -695,7 +708,7 @@ continue; \
 
 - (void)unsafeKeepAliveCheck {
     // some ssh impl wont accept keep alive if not and may break connection
-    if (!(self.isConnected && self.isAuthenicated)) {
+    if (!(self.isConnected && self.isAuthenticated)) {
         return;
     }
     
@@ -772,7 +785,7 @@ continue; \
         if (!self.associatedSocket) { break; }
         if (!self.associatedSession) { break; }
         if (!self.connected) { break; }
-        if (!self.isAuthenicated) { break; }
+        if (!self.isAuthenticated) { break; }
         if (!self.associatedFileTransfer) { break; }
         return YES;
     } while (0);
@@ -796,6 +809,7 @@ continue; \
     while (true) {
         long long rc = libssh2_userauth_password(session, [username UTF8String], [password UTF8String]);
         if (rc == LIBSSH2_ERROR_EAGAIN) {
+            usleep(LIBSSH2_CONTINUE_EAGAIN_WAIT);
             continue;
         }
         authenticated = (rc == 0);
@@ -822,12 +836,20 @@ continue; \
     LIBSSH2_SESSION *session = self.associatedSession;
     BOOL authenticated = NO;
     while (true) {
+        const char *name = username ? [username UTF8String] : NULL;
+        unsigned int nl = username ? (unsigned int)strlen(name) : 0;
+        const char *pub = publicKey ? [publicKey UTF8String] : NULL;
+        unsigned int pul = publicKey ? (unsigned int)strlen(pub): 0;
+        const char *pri = privateKey ? [privateKey UTF8String] : NULL;
+        unsigned int prl = privateKey ? (unsigned int)strlen(pri) : 0;
+        const char *pwd = password ? [password UTF8String] : NULL;
         long long rc = libssh2_userauth_publickey_frommemory(session,
-                                                             [username UTF8String], [username length],
-                                                             [publicKey UTF8String] ?: nil, [publicKey length] ?: 0,
-                                                             [privateKey UTF8String] ?: nil, [privateKey length] ?: 0,
-                                                             [password UTF8String]);
+                                                             name, (unsigned int)nl,
+                                                             pub, (unsigned int)pul,
+                                                             pri, (unsigned int)prl,
+                                                             pwd);
         if (rc == LIBSSH2_ERROR_EAGAIN) {
+            usleep(LIBSSH2_CONTINUE_EAGAIN_WAIT);
             continue;
         }
         authenticated = (rc == 0);
@@ -878,6 +900,7 @@ continue; \
         }
         long rc = libssh2_session_last_errno(session);
         if (rc == LIBSSH2_ERROR_EAGAIN) {
+            usleep(LIBSSH2_CONTINUE_EAGAIN_WAIT);
             continue;
         }
         break;
@@ -894,7 +917,7 @@ continue; \
     BOOL channelStartupCompleted = NO;
     while (true) {
         long rc = libssh2_channel_exec(channel, [command UTF8String]);
-        if (rc == LIBSSH2_ERROR_EAGAIN) { continue; }
+        if (rc == LIBSSH2_ERROR_EAGAIN) { usleep(LIBSSH2_CONTINUE_EAGAIN_WAIT); continue; }
         channelStartupCompleted = (rc == 0);
         break;
     }
@@ -954,6 +977,7 @@ continue; \
         }
         long rc = libssh2_session_last_errno(session);
         if (rc == LIBSSH2_ERROR_EAGAIN) {
+            usleep(LIBSSH2_CONTINUE_EAGAIN_WAIT);
             continue;
         }
         break;
@@ -978,6 +1002,7 @@ continue; \
         while (true) {
             long rc = libssh2_channel_request_pty(channel, [requestPseudoTermial UTF8String]);
             if (rc == LIBSSH2_ERROR_EAGAIN) {
+                usleep(LIBSSH2_CONTINUE_EAGAIN_WAIT);
                 continue;
             }
             requestedPty = (rc == 0);
@@ -997,7 +1022,7 @@ continue; \
         BOOL channelStartupCompleted = NO;
         while (true) {
             long rc = libssh2_channel_shell(channel);
-            if (rc == LIBSSH2_ERROR_EAGAIN) { continue; }
+            if (rc == LIBSSH2_ERROR_EAGAIN) { usleep(LIBSSH2_CONTINUE_EAGAIN_WAIT); continue; }
             channelStartupCompleted = (rc == 0);
             break;
         }
@@ -1126,6 +1151,7 @@ continue; \
         // it's a bug
         // looks like libssh2 reading with dirty memory data
         if (rc == LIBSSH2_ERROR_EAGAIN) {
+            usleep(LIBSSH2_CONTINUE_EAGAIN_WAIT);
             continue;
         }
         break;
@@ -1183,6 +1209,7 @@ continue; \
         }
         long rc = libssh2_session_last_errno(session);
         if (rc == LIBSSH2_ERROR_EAGAIN) {
+            usleep(LIBSSH2_CONTINUE_EAGAIN_WAIT);
             continue;
         }
         break;
@@ -1211,9 +1238,10 @@ continue; \
             libssh2_session_set_last_error(session, LIBSSH2_ERROR_TIMEOUT, NULL);
             break;
         }
+        const char *cpath = [path UTF8String];
         LIBSSH2_SFTP_HANDLE *handlerBuilder = libssh2_sftp_open_ex(sftp,
-                                                                   path.UTF8String,
-                                                                   (unsigned int)path.length,
+                                                                   cpath,
+                                                                   (unsigned int)strlen(cpath),
                                                                    0,
                                                                    0,
                                                                    LIBSSH2_SFTP_OPENDIR);
@@ -1224,6 +1252,7 @@ continue; \
         }
         long rc = libssh2_session_last_errno(session);
         if (rc == LIBSSH2_ERROR_EAGAIN) {
+            usleep(LIBSSH2_CONTINUE_EAGAIN_WAIT);
             continue;
         }
         break;
@@ -1248,9 +1277,19 @@ continue; \
             libssh2_session_set_last_error(session, LIBSSH2_ERROR_TIMEOUT, NULL);
             break;
         }
+        const char *cpath = [path UTF8String];
+        /*
+         by using c path and strlen, utf8 char set with multi length will have the right space
+         
+         (lldb) po [path length];
+         25
+
+         (lldb) po strlen(cpath)
+         29
+         */
         LIBSSH2_SFTP_HANDLE *handlerBuilder = libssh2_sftp_open_ex(sftp,
-                                                                   path.UTF8String,
-                                                                   (unsigned int)path.length,
+                                                                   cpath,
+                                                                   (unsigned int)strlen(cpath),
                                                                    flags,
                                                                    mode,
                                                                    LIBSSH2_SFTP_OPENFILE);
@@ -1261,6 +1300,7 @@ continue; \
         }
         long rc = libssh2_session_last_errno(session);
         if (rc == LIBSSH2_ERROR_EAGAIN) {
+            usleep(LIBSSH2_CONTINUE_EAGAIN_WAIT);
             continue;
         }
         break;
@@ -1303,7 +1343,7 @@ continue; \
             }
             rc = libssh2_sftp_readdir(handle, buffer, sizeof(buffer), &fileAttributes);
             if (rc >= 0) { break; } // read success
-            if (rc == LIBSSH2_ERROR_EAGAIN) { continue; } // go around
+            if (rc == LIBSSH2_ERROR_EAGAIN) { usleep(LIBSSH2_CONTINUE_EAGAIN_WAIT); continue; } // go around
             break;
         }
         if (rc > 0) {
@@ -1356,6 +1396,7 @@ continue; \
         }
         ssize_t rc = libssh2_sftp_fstat(handle, &fileAttributes);
         if (rc == LIBSSH2_ERROR_EAGAIN) {
+            usleep(LIBSSH2_CONTINUE_EAGAIN_WAIT);
             continue;
         }
         if (rc == 0) {
@@ -1387,7 +1428,7 @@ continue; \
     NSURL *remoteFile = [[NSURL alloc] initFileURLWithPath:toDirectory];
     remoteFile = [remoteFile URLByAppendingPathComponent:localFile.lastPathComponent];
     
-    NSLog(@"uploading %@ to %@", localFile.path, remoteFile.path);
+//    NSLog(@"uploading %@ to %@", localFile.path, remoteFile.path);
     
     BOOL isDir = NO;
     BOOL exists = [[NSFileManager defaultManager] fileExistsAtPath:localFile.path isDirectory:&isDir];
@@ -1405,7 +1446,7 @@ continue; \
                                   failureReason:@"this function does not support upload directory"];
         return NO;
     }
-    NSLog(@"requesting upload file at %@ to %@", localFile.path, remoteFile.path);
+//    NSLog(@"requesting upload file at %@ to %@", localFile.path, remoteFile.path);
     FILE *f = fopen([localFile.path UTF8String], "rb");
     if (!f) {
         [self unsafeFileTransferSetErrorForFile:localFile.path pathIsRemote:NO failureReason:@"failed to read"];
@@ -1434,6 +1475,7 @@ continue; \
         }
         long rc = libssh2_session_last_errno(session);
         if (rc == LIBSSH2_ERROR_EAGAIN) {
+            usleep(LIBSSH2_CONTINUE_EAGAIN_WAIT);
             continue;
         }
         break;
@@ -1447,21 +1489,22 @@ continue; \
     NSDate *begin = [[NSDate alloc] init];
     NSDate *previousProgressSent = [[NSDate alloc] initWithTimeIntervalSince1970:0];
     
-    char mem[SFTP_BUFFER_SIZE];
+//    char *buff = (char*)malloc(SFTP_BUFFER_SIZE);
+    char buff[SFTP_BUFFER_SIZE];
     size_t read_size;
     char *ptr;
     NSUInteger sent_size = 0;
     NSUInteger total_size = fi.st_size;
     while (sent_size < total_size) {
-        if (continuationBlock && !continuationBlock()) {
-            break;
-        }
-        memset(mem, 0, sizeof(mem));
-        read_size = fread(mem, 1, sizeof(mem), f);
+        if (continuationBlock && !continuationBlock()) { break; }
+        if (!self.isConnectedFileTransfer) { break; }
+//        memset(buff, 0, SFTP_BUFFER_SIZE);
+        memset(buff, 0, sizeof(buff));
+        read_size = fread(buff, 1, sizeof(buff), f);
         if (read_size <= 0) {
             break; // done or error
         }
-        ptr = mem;
+        ptr = buff;
         long long rc = LIBSSH2_ERROR_EAGAIN;
         // we are not really count the timeout here tho
         while (rc == LIBSSH2_ERROR_EAGAIN || read_size) {
@@ -1491,9 +1534,12 @@ continue; \
             NSProgress *progress = [[NSProgress alloc] init];
             [progress setTotalUnitCount:total_size];
             [progress setCompletedUnitCount:sent_size];
-            onProgress(atPath, progress, speed);
+            dispatch_async(dispatch_get_main_queue(), ^{
+                onProgress(atPath, progress, speed);
+            });
         }
     };
+//    free(buff);
     [self unsafeReadLastError];
     
     if (sent_size < total_size) {
@@ -1504,7 +1550,7 @@ continue; \
     
     fclose(f);
     LIBSSH2_CHANNEL_SHUTDOWN(channel);
-    NSLog(@"upload %@ to %@ done", localFile.path, remoteFile.path);
+//    NSLog(@"upload %@ to %@ done", localFile.path, remoteFile.path);
     if (onProgress) {
         NSProgress *progress = [[NSProgress alloc] init];
         [progress setTotalUnitCount:total_size];
@@ -1514,7 +1560,9 @@ continue; \
         if (interval != 0) {
             speed = sent_size / interval;
         }
-        onProgress(atPath, progress, speed);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            onProgress(atPath, progress, speed);
+        });
     }
     return sent_size == total_size;
 }
@@ -1593,7 +1641,7 @@ continue; \
     if (![self unsafeValidateSessionSFTP]) { return NO; }
     LIBSSH2_SESSION *session = self.associatedSession;
     LIBSSH2_SFTP *sftp = self.associatedFileTransfer;
-    NSLog(@"removing file %@", atPath);
+//    NSLog(@"removing file %@", atPath);
     
     return [self unsafeDeleteRecursivelyForPathAndReturnContinue:atPath
                                                      withSession:session
@@ -1620,7 +1668,7 @@ continue; \
     }
     LIBSSH2_SESSION *session = self.associatedSession;
     LIBSSH2_SFTP *sftp = self.associatedFileTransfer;
-    NSLog(@"creating dir %@", atPath);
+//    NSLog(@"creating dir %@", atPath);
     
     // before we create, ask to check if already exists
     NSRemoteFile *file = [self unsafeGetFileInfo:atPath];
@@ -1642,8 +1690,10 @@ continue; \
         | LIBSSH2_SFTP_S_IXGRP
         | LIBSSH2_SFTP_S_IROTH
         | LIBSSH2_SFTP_S_IXOTH;
-        rc = libssh2_sftp_mkdir_ex(sftp, atPath.UTF8String, (unsigned int)atPath.length, mode);
+        const char *cpath = [atPath UTF8String];
+        rc = libssh2_sftp_mkdir_ex(sftp, cpath, (unsigned int)strlen(cpath), mode);
         if (rc == LIBSSH2_ERROR_EAGAIN) {
+            usleep(LIBSSH2_CONTINUE_EAGAIN_WAIT);
             continue;
         }
         break;
@@ -1689,8 +1739,12 @@ continue; \
                                                      withContinuationHandler:continuationBlock];
             if (!ret) { return NO; }
         }
-        NSLog(@"calling rmdir at %@", atPath);
-        if (onProgress) { onProgress(atPath); }
+//        NSLog(@"calling rmdir at %@", atPath);
+        if (onProgress) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                onProgress(atPath);
+            });
+        }
         NSDate *date = [[NSDate alloc] initWithTimeIntervalSinceNow:[self.operationTimeout intValue]];
         long long rc = 0;
         while (true) {
@@ -1698,8 +1752,10 @@ continue; \
                 libssh2_session_set_last_error(session, LIBSSH2_ERROR_TIMEOUT, NULL);
                 break;
             }
-            rc = libssh2_sftp_rmdir_ex(sftp, atPath.UTF8String, (unsigned int)atPath.length);
+            const char *cpath = [atPath UTF8String];
+            rc = libssh2_sftp_rmdir_ex(sftp, cpath, (unsigned int)strlen(cpath));
             if (rc == LIBSSH2_ERROR_EAGAIN) {
+                usleep(LIBSSH2_CONTINUE_EAGAIN_WAIT);
                 continue;
             }
             break;
@@ -1711,8 +1767,12 @@ continue; \
         }
         return YES;
     } else {
-        NSLog(@"calling unlink at %@", atPath);
-        if (onProgress) { onProgress(atPath); }
+//        NSLog(@"calling unlink at %@", atPath);
+        if (onProgress) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                onProgress(atPath);
+            });
+        }
         NSDate *date = [[NSDate alloc] initWithTimeIntervalSinceNow:[self.operationTimeout intValue]];
         long long rc = 0;
         while (true) {
@@ -1720,8 +1780,10 @@ continue; \
                 libssh2_session_set_last_error(session, LIBSSH2_ERROR_TIMEOUT, NULL);
                 break;
             }
-            rc = libssh2_sftp_unlink_ex(sftp, [atPath UTF8String], (unsigned int)atPath.length);
+            const char *cpath = [atPath UTF8String];
+            rc = libssh2_sftp_unlink_ex(sftp, cpath, (unsigned int)strlen(cpath));
             if (rc == LIBSSH2_ERROR_EAGAIN) {
+                usleep(LIBSSH2_CONTINUE_EAGAIN_WAIT);
                 continue;
             }
             break;
@@ -1744,7 +1806,7 @@ continue; \
     // we are called from ourselves
     NSString *atPath = atFullPath;
     NSURL *localFile = [[NSURL alloc] initFileURLWithPath:toFullPath];
-    NSString *toPath = toFullPath;
+//    NSString *toPath = toFullPath;
     NSURL *remoteFile = [[NSURL alloc] initFileURLWithPath:atFullPath];
     
     //    NSLog(@"%@ to %@", remoteFile.path, localFile.path);
@@ -1764,7 +1826,7 @@ continue; \
         [self unsafeFileTransferSetErrorForFile:atFullPath pathIsRemote:YES failureReason:@"broken connection"];
         return NO;
     }
-    NSLog(@"downloading file %@ to %@", atPath, toPath);
+//    NSLog(@"downloading file %@ to %@", atPath, toPath);
     
     struct stat fi;
     memset(&fi, 0, sizeof(fi));
@@ -1783,6 +1845,7 @@ continue; \
         }
         long long rc = libssh2_session_last_errno(session);
         if (rc == LIBSSH2_ERROR_EAGAIN) {
+            usleep(LIBSSH2_CONTINUE_EAGAIN_WAIT);
             continue;
         }
         break;
@@ -1808,13 +1871,14 @@ continue; \
     // do note that the file could be empty
     // fi.st_size may be zero, the entire loop is going to be skipped
     long long recv_size = 0;
+//    char *buff = (char*)malloc(SFTP_BUFFER_SIZE);
     char buff[SFTP_BUFFER_SIZE];
     while (recv_size < fi.st_size) {
-        if (continuationBlock && !continuationBlock()) {
-            break;
-        }
+        if (continuationBlock && !continuationBlock()) { break; }
+        if (!self.isConnectedFileTransfer) { break; }
         long long recv_decision = sizeof(buff);
-        memset(buff, 0, recv_decision);
+//        memset(buff, 0, SFTP_BUFFER_SIZE);
+        memset(buff, 0, sizeof(buff));
         if ((fi.st_size - recv_size) < recv_decision) {
             // do not write over!
             // libssh2_channel_read may have dirty data
@@ -1855,10 +1919,14 @@ continue; \
                 NSProgress *progress = [[NSProgress alloc] init];
                 [progress setTotalUnitCount:fi.st_size];
                 [progress setCompletedUnitCount:recv_size];
-                onProgress(remoteFile.path, progress, speed);
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    onProgress(remoteFile.path, progress, speed);
+                });
             }
         }
     }
+//    free(buff);
+    [self unsafeReadLastError];
     if (onProgress) {
         NSProgress *progress = [[NSProgress alloc] init];
         [progress setTotalUnitCount:fi.st_size];
@@ -1868,7 +1936,9 @@ continue; \
         if (interval) {
             speed = recv_size / interval;
         }
-        onProgress(remoteFile.path, progress, speed);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            onProgress(remoteFile.path, progress, speed);
+        });
     }
     if (recv_size != fi.st_size) {
         [self unsafeFileTransferSetErrorForFile:atFullPath
@@ -1936,7 +2006,7 @@ continue; \
             // now because it is a directory, we create one on our local path
             NSURL *localBase = localFile; // don't remove this, it will make code cleaner
             // TODO: Copy All File Attribute
-            NSLog(@"creating dir %@ to %@", remoteFile.path, localBase.path);
+//            NSLog(@"creating dir %@ to %@", remoteFile.path, localBase.path);
             [NSFileManager.defaultManager createDirectoryAtURL:localBase
                                    withIntermediateDirectories:YES
                                                     attributes:NULL
@@ -1998,7 +2068,7 @@ continue; \
     }
     LIBSSH2_SESSION *session = self.associatedSession;
     LIBSSH2_SFTP *sftp = self.associatedFileTransfer;
-    NSLog(@"rename %@ to %@", atPath, newPath);
+//    NSLog(@"rename %@ to %@", atPath, newPath);
     
     NSDate *date = [[NSDate alloc] initWithTimeIntervalSinceNow:[self.operationTimeout intValue]];
     long long rc = 0;
@@ -2011,13 +2081,16 @@ continue; \
         | LIBSSH2_SFTP_RENAME_OVERWRITE
         | LIBSSH2_SFTP_RENAME_ATOMIC
         | LIBSSH2_SFTP_RENAME_NATIVE;
+        const char *acp = [atPath UTF8String];
+        const char *ncp = [newPath UTF8String];
         rc = libssh2_sftp_rename_ex(sftp,
-                                    atPath.UTF8String,
-                                    (unsigned int)(atPath.length),
+                                    acp,
+                                    (unsigned int)strlen(acp),
                                     newPath.UTF8String,
-                                    (unsigned int)(newPath.length),
+                                    (unsigned int)strlen(ncp),
                                     mode);
         if (rc == LIBSSH2_ERROR_EAGAIN) {
+            usleep(LIBSSH2_CONTINUE_EAGAIN_WAIT);
             continue;
         }
         break;
