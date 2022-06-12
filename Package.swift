@@ -11,12 +11,14 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(name: "CSSH", path: "External/CSSH"),
+        .package(url: "https://github.com/DimaRU/Libssh2Prebuild.git", branch: "1.10.0+OpenSSL_1_1_1o"),
     ],
     targets: [
         .target(
             name: "NSRemoteShell",
-            dependencies: ["CSSH"]
+            dependencies: [
+                .product(name: "CSSH", package: "Libssh2Prebuild"),
+            ]
         ),
     ]
 )
