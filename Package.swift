@@ -10,13 +10,11 @@ let package = Package(
             targets: ["NSRemoteShell"]
         ),
     ],
-    dependencies: [
-        .package(name: "CSSH", path: "External/CSSH"),
-    ],
     targets: [
         .target(
             name: "NSRemoteShell",
             dependencies: ["CSSH"]
         ),
+        .binaryTarget(name: "CSSH", path: "External/CSSH.xcframework")
     ]
 )
