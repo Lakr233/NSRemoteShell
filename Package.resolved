@@ -1,0 +1,25 @@
+{
+  "object": {
+    "pins": [
+      {
+        "package": "CSSH2",
+        "repositoryURL": "https://github.com/Lakr233/libssh2-spm",
+        "state": {
+          "branch": null,
+          "revision": "239cb276c2322335eaadc86b8119f74602215424",
+          "version": "1.11.0"
+        }
+      },
+      {
+        "package": "OpenSSL",
+        "repositoryURL": "https://github.com/Lakr233/openssl-spm.git",
+        "state": {
+          "branch": null,
+          "revision": "327471fc025dea2adf7cd4e80257e76cf7e95851",
+          "version": "3.2.1"
+        }
+      }
+    ]
+  },
+  "version": 1
+}
