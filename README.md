@@ -2,17 +2,6 @@
 
 Remote shell using libssh2 with Objective-C. Thread safe implementation. Available as Swift Package.
 
-## git
-
-`libssh2` prebuilt binaries are required to build this package. Either clone with recursive submodules or update after clone. Bitcode is available.
-
-> git submodule update --init --recursive --remote
-
-See following options to learn more.
-
-- https://github.com/Lakr233/CSSH 
-- https://github.com/DimaRU/Libssh2Prebuild
-
 ## Usage
 
 In our design, all operation is blocked, and is recommended to call in background thread.
@@ -152,4 +141,4 @@ Conditions
 
 ---
 
-Copyright © 2022 Lakr Aream. All Rights Reserved.
+Copyright © 2024 Lakr Aream. All Rights Reserved.
