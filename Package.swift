@@ -11,7 +11,7 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(url: "https://github.com/Lakr233/libssh2-spm", from: "1.0.0"),
+        .package(url: "https://github.com/Lakr233/libssh2-spm", from: "1.11.2"),
     ],
     targets: [
         .target(

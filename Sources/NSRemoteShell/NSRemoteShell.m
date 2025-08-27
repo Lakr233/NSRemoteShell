@@ -41,7 +41,6 @@
 @property (nonatomic, readwrite, assign) int associatedSocket;
 @property (nonatomic, readwrite, nullable, assign) LIBSSH2_SESSION *associatedSession;
 @property (nonatomic, readwrite, nullable, assign) LIBSSH2_SFTP *associatedFileTransfer;
-@property (nonatomic, readwrite, nullable, strong) dispatch_source_t associatedSocketSource;
 
 @property (nonatomic, readwrite, nonnull, strong) NSMutableArray<id<NSRemoteOperableObject>> *operableObjects;
 @property (nonatomic, readwrite, nonnull, strong) NSMutableArray *requestInvokations;
@@ -109,8 +108,8 @@
             [object unsafeDisconnectAndPrepareForRelease];
         }
         [self.operableObjects removeAllObjects];
-        // should cancel any source
-        [self unsafeDispatchSourceMakeDecision];
+        // cleanup event IO registration
+        [self unsafeEventIOSocketRegistration];
         [self.requestLoopLock unlock];
     });
 }
@@ -155,7 +154,7 @@
         }
         [self.requestInvokations removeAllObjects];
         [self unsafeKeepAliveCheck];
-        [self unsafeDispatchSourceMakeDecision];
+        [self unsafeEventIOSocketRegistration];
         NSMutableArray *newArray = [[NSMutableArray alloc] init];
         for (id<NSRemoteOperableObject> object in [self.operableObjects copy]) {
 #define NSRemoteOperableObjectCheck(OBJECT) \
@@ -172,7 +171,7 @@ continue; \
             [newArray addObject:object];
         }
         self.operableObjects = newArray;
-        [self unsafeDispatchSourceMakeDecision];
+        [self unsafeEventIOSocketRegistration];
     }
     [self unsafeReadLastError];
     [self.requestLoopLock unlock];
@@ -580,7 +579,7 @@ continue; \
     
     int sock = [GenericNetworking createSocketWithTargetHost:self.remoteHost
                                               withTargetPort:self.remotePort
-                                        requireNonblockingIO:NO];
+                                        requireNonblockingIO:YES]; // 始终使用非阻塞IO
     if (!sock) {
         NSLog(@"failed to create socket to host");
         return;
@@ -664,7 +663,9 @@ continue; \
     self.connected = NO;
     self.authenticated = NO;
     
-    if (self.associatedSocket) {
+    // 从事件驱动IO中取消注册socket
+    if (self.associatedSocket > 0) {
+        [[self.associatedLoop eventIO] unregisterSocket:self.associatedSocket];
         [GenericNetworking destroyNativeSocket:self.associatedSocket];
     }
     self.associatedSocket = 0;
@@ -680,29 +681,13 @@ continue; \
     [self unsafeReadLastError];
 }
 
-- (void)unsafeDispatchSourceMakeDecision {
-    if ([self.operableObjects count] > 0) {
-        if (!self.associatedSocketSource) {
-            dispatch_source_t socketDataSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ,
-                                                                        self.associatedSocket,
-                                                                        0,
-                                                                        dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0));
-            if (!socketDataSource) {
-                NSLog(@"failed to create dispatch source for socket");
-                [self unsafeDisconnect];
-                return;
-            }
-            dispatch_source_set_event_handler(socketDataSource, ^{
-                [self.associatedLoop explicitRequestHandle];
-            });
-            dispatch_resume(socketDataSource);
-            self.associatedSocketSource = socketDataSource;
-        }
-    } else {
-        if (self.associatedSocketSource) {
-            dispatch_source_cancel(self.associatedSocketSource);
-            self.associatedSocketSource = NULL;
-        }
+- (void)unsafeEventIOSocketRegistration {
+    // 注册socket到事件驱动IO系统
+    if ([self.operableObjects count] > 0 && self.associatedSocket > 0) {
+        [[self.associatedLoop eventIO] registerSocket:self.associatedSocket 
+                                            forEvents:NSIOEventTypeRead | NSIOEventTypeWrite];
+    } else if (self.associatedSocket > 0) {
+        [[self.associatedLoop eventIO] unregisterSocket:self.associatedSocket];
     }
 }
 

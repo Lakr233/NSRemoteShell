@@ -93,14 +93,10 @@ while (libssh2_channel_free(CHANNEL) == LIBSSH2_ERROR_EAGAIN) {}; \
 /*
  represent how much time we should sleep before continue next loop
  
- libssh2 with nonblocking mode shall go again immediately
- when returning LIBSSH2_ERROR_EAGAIN but this may cause extra high cpu usage
- if network condition is not looking good
- 
- a better solution would be use select/poll/epoll to have kernel do it
- but that is a story for another day :p
+ With the new event-driven IO system, we significantly reduce the wait time
+ since kqueue will efficiently handle IO events instead of busy waiting
  */
-#define LIBSSH2_CONTINUE_EAGAIN_WAIT 800
+#define LIBSSH2_CONTINUE_EAGAIN_WAIT 100  // Reduced from 800 to 100 microseconds
 
 /*
  defines the event loop handler class for NSRemoteShell

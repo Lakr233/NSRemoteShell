@@ -105,17 +105,27 @@
                 NSLog(@"socket failed to create, trying next");
                 continue;
             }
-            int rv = connect(forwardsock, (struct sockaddr*)&address4, sizeof(struct sockaddr_in));
-            if (rv != 0) {
-                NSLog(@"socket failed to connect, trying next address");
-                close(forwardsock);
-                continue;
-            }
+            
+            // 设置为非阻塞模式（如果需要）
             if (useNonblocking && fcntl(forwardsock, F_SETFL, fcntl(forwardsock, F_GETFL, 0) | O_NONBLOCK) == -1) {
-                NSLog(@"failed to call fcntl for none-blocking for socket %d", forwardsock);
+                NSLog(@"failed to set socket non-blocking for socket %d", forwardsock);
                 close(forwardsock);
                 continue;
             }
+            
+            int rv = connect(forwardsock, (struct sockaddr*)&address4, sizeof(struct sockaddr_in));
+            if (rv != 0 && errno != EINPROGRESS) {
+                NSLog(@"socket failed to connect, trying next address: %s", strerror(errno));
+                close(forwardsock);
+                continue;
+            }
+            
+            // 对于非阻塞socket，如果是EINPROGRESS则正常
+            if (useNonblocking && rv != 0 && errno == EINPROGRESS) {
+                // 连接在进行中，这对非阻塞socket是正常的
+                NSLog(@"non-blocking connection in progress for socket %d to address %s", forwardsock, str);
+            }
+            
             NSLog(@"created socket %d to address %s", forwardsock, str);
             return forwardsock;
         } else if ([candidateHostData length] == sizeof(struct sockaddr_in6)) {
@@ -129,17 +139,27 @@
                 NSLog(@"socket failed to create, trying next");
                 continue;
             }
-            int rv = connect(forwardsock, (struct sockaddr*)&address6, sizeof(struct sockaddr_in6));
-            if (rv != 0) {
-                NSLog(@"socket failed to connect, trying next address");
-                close(forwardsock);
-                continue;
-            }
+            
+            // 设置为非阻塞模式（如果需要）
             if (useNonblocking && fcntl(forwardsock, F_SETFL, fcntl(forwardsock, F_GETFL, 0) | O_NONBLOCK) == -1) {
-                NSLog(@"failed to call fcntl for none-blocking for socket %d", forwardsock);
+                NSLog(@"failed to set socket non-blocking for socket %d", forwardsock);
                 close(forwardsock);
                 continue;
             }
+            
+            int rv = connect(forwardsock, (struct sockaddr*)&address6, sizeof(struct sockaddr_in6));
+            if (rv != 0 && errno != EINPROGRESS) {
+                NSLog(@"socket failed to connect, trying next address: %s", strerror(errno));
+                close(forwardsock);
+                continue;
+            }
+            
+            // 对于非阻塞socket，如果是EINPROGRESS则正常
+            if (useNonblocking && rv != 0 && errno == EINPROGRESS) {
+                // 连接在进行中，这对非阻塞socket是正常的
+                NSLog(@"non-blocking connection in progress for socket %d to address %s", forwardsock, str);
+            }
+            
             NSLog(@"created socket %d to address %s", forwardsock, str);
             return forwardsock;
         } else {

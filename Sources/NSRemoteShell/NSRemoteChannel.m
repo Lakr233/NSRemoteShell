@@ -7,6 +7,14 @@
 
 #import "NSRemoteChannel.h"
 
+@interface NSRemoteChannelWriteBuffer : NSObject
+@property (nonatomic, strong) NSData *data;
+@property (nonatomic, assign) NSUInteger offset;
+@end
+
+@implementation NSRemoteChannelWriteBuffer
+@end
+
 @interface NSRemoteChannel ()
 
 @property (nonatomic, nullable, readwrite, assign) LIBSSH2_SESSION *representedSession;
@@ -25,6 +33,10 @@
 @property (nonatomic, readwrite) BOOL channelCompleted;
 @property (nonatomic, readwrite, assign) int exitStatus;
 
+// 写入队列管理（兼容旧接口的异步实现）
+@property (nonatomic, strong) NSMutableArray<NSRemoteChannelWriteBuffer *> *writeQueue;
+@property (nonatomic, strong) NSLock *writeQueueLock;
+
 @end
 
 @implementation NSRemoteChannel
@@ -41,6 +53,8 @@
         _channelCompleted = NO;
         _currentTerminalSize = CGSizeMake(0, 0);
         _exitStatus = 0;
+        _writeQueue = [[NSMutableArray alloc] init];
+        _writeQueueLock = [[NSLock alloc] init];
     }
     return self;
 }
@@ -126,38 +140,55 @@
 }
 
 - (void)unsafeChannelWrite {
-    if (!self.requestDataBlock) {
-        return;
+    // 首先处理旧的requestDataBlock方式（兼容现有接口）
+    if (self.requestDataBlock) {
+        NSString *requestedBuffer = self.requestDataBlock();
+        if (requestedBuffer && [requestedBuffer length] > 0) {
+            NSData *data = [requestedBuffer dataUsingEncoding:NSUTF8StringEncoding];
+            if (data && [data length] > 0) {
+                // 将回调数据添加到队列中异步发送
+                [self.writeQueueLock lock];
+                NSRemoteChannelWriteBuffer *buffer = [[NSRemoteChannelWriteBuffer alloc] init];
+                buffer.data = data;
+                buffer.offset = 0;
+                [self.writeQueue addObject:buffer];
+                [self.writeQueueLock unlock];
+            }
+        }
     }
-    NSString *requestedBuffer = self.requestDataBlock();
-    if (!requestedBuffer || [requestedBuffer length] < 1) {
-        return;
-    }
-    NSData *data = [requestedBuffer dataUsingEncoding:NSUTF8StringEncoding];
-    if (!data || [data length] < 1) {
-        NSLog(@"error occurred during message encode, ignoring empty data");
-        return;
-    }
-    while (true) {
+    
+    // 处理写入队列
+    [self.writeQueueLock lock];
+    
+    while (self.writeQueue.count > 0) {
+        NSRemoteChannelWriteBuffer *buffer = self.writeQueue.firstObject;
+        
+        const char *bytes = (const char *)buffer.data.bytes + buffer.offset;
+        size_t remainingLength = buffer.data.length - buffer.offset;
+        
+        long rc = libssh2_channel_write(self.representedChannel, bytes, remainingLength);
+        
+        if (rc == LIBSSH2_ERROR_EAGAIN) {
+            // 稍后重试
+            break;
+        } else if (rc < 0) {
+            NSLog(@"error occurred during channel write: %ld", rc);
+            [self.writeQueue removeObjectAtIndex:0];
+            break;
+        } else if (rc > 0) {
+            buffer.offset += rc;
+            if (buffer.offset >= buffer.data.length) {
+                // 完整发送完毕
+                [self.writeQueue removeObjectAtIndex:0];
+            }
+        }
+        
         if ([self unsafeChannelShouldTerminate]) {
             break;
         }
-        // Actual number of bytes written or negative on failure.
-        long rc = libssh2_channel_write(self.representedChannel, [data bytes], [data length]);
-        if (rc == LIBSSH2_ERROR_EAGAIN) {
-            continue;
-        }
-        if (rc < 0) {
-            NSLog(@"error occurred during message write, consider terminated channel");
-            break;
-        }
-        if (rc != [data length]) {
-            NSLog(@"written data was smaller than giving, data might broke");
-            break;
-        }
-        // do not deal with error?
-        break;
     }
+    
+    [self.writeQueueLock unlock];
 }
 
 - (BOOL)unsafeChannelShouldTerminate {
@@ -225,6 +256,12 @@
 
 - (void)unsafeDisconnectAndPrepareForRelease {
     if (!self.channelCompleted) { self.channelCompleted = YES; }
+    
+    // 清理写入队列
+    [self.writeQueueLock lock];
+    [self.writeQueue removeAllObjects];
+    [self.writeQueueLock unlock];
+    
     if (!self.representedSession) { return; }
     if (!self.representedChannel) { return; }
     LIBSSH2_CHANNEL *channel = self.representedChannel;
