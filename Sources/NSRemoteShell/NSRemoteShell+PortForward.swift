@@ -13,7 +13,8 @@ public extension NSRemoteShell {
         let state = ForwardState()
         let id = UUID()
         let task = Task { [weak self] in
-            await self?.runLocalForward(
+            guard let self else { return }
+            await self.runLocalForward(
                 session: session,
                 listenSocket: listenSocket,
                 localPort: localPort,
@@ -24,7 +25,7 @@ public extension NSRemoteShell {
             )
         }
         forwardTasks[id] = task
-        return PortForwardHandle(state: state)
+        return PortForwardHandle(state: state, boundPort: localPort)
     }
 
     func startRemotePortForward(
@@ -35,11 +36,13 @@ public extension NSRemoteShell {
     ) async throws -> PortForwardHandle {
         guard let session else { throw RemoteShellError.disconnected }
         let state = ForwardState()
+        let (listener, boundPort) = try await openRemoteListener(session: session, remotePort: remotePort)
         let id = UUID()
         let task = Task { [weak self] in
-            await self?.runRemoteForward(
+            guard let self else { return }
+            await self.runRemoteForward(
                 session: session,
-                remotePort: remotePort,
+                listener: listener,
                 targetHost: targetHost,
                 targetPort: targetPort,
                 state: state,
@@ -47,7 +50,7 @@ public extension NSRemoteShell {
             )
         }
         forwardTasks[id] = task
-        return PortForwardHandle(state: state)
+        return PortForwardHandle(state: state, boundPort: boundPort)
     }
 }
 
@@ -113,14 +116,12 @@ private extension NSRemoteShell {
 
     func runRemoteForward(
         session: SSHSession,
-        remotePort: Int,
+        listener: OpaquePointer,
         targetHost: String,
         targetPort: Int,
         state: ForwardState,
         shouldContinue: @Sendable () -> Bool
     ) async {
-        let listener = await openRemoteListener(session: session, remotePort: remotePort)
-        guard let listener else { return }
         defer {
             while libssh2_channel_forward_cancel(listener) == LIBSSH2_ERROR_EAGAIN {}
         }
@@ -146,12 +147,12 @@ private extension NSRemoteShell {
         }
     }
 
-    func openRemoteListener(session: SSHSession, remotePort: Int) async -> OpaquePointer? {
+    func openRemoteListener(session: SSHSession, remotePort: Int) async throws -> (OpaquePointer, Int) {
         var boundPort: Int32 = 0
         let deadline = Date().addingTimeInterval(configuration.timeout)
         while true {
             if deadline.timeIntervalSinceNow <= 0 {
-                return nil
+                throw RemoteShellError.timeout
             }
             let listener = libssh2_channel_forward_listen_ex(
                 session.session,
@@ -160,14 +161,14 @@ private extension NSRemoteShell {
                 &boundPort,
                 Int32(SSHConstants.socketQueueSize)
             )
-            if listener != nil {
-                return listener
+            if let listener {
+                return (listener, Int(boundPort))
             }
             if libssh2_session_last_errno(session.session) == LIBSSH2_ERROR_EAGAIN {
-                try? await session.waitForSocket(deadline: deadline)
+                try await session.waitForSocket(deadline: deadline)
                 continue
             }
-            return nil
+            throw session.lastError(fallback: "Failed to open remote listener")
         }
     }
 

@@ -14,9 +14,11 @@ actor ForwardState {
 
 public actor PortForwardHandle {
     private let state: ForwardState
+    public let boundPort: Int
 
-    init(state: ForwardState) {
+    init(state: ForwardState, boundPort: Int) {
         self.state = state
+        self.boundPort = boundPort
     }
 
     public func cancel() async {

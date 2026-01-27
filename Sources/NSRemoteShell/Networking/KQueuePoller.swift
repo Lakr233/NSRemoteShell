@@ -1,5 +1,5 @@
 import Foundation
-import Darwin
+import Dispatch
 
 struct SocketEvents: OptionSet, Sendable {
     let rawValue: Int
@@ -9,67 +9,50 @@ struct SocketEvents: OptionSet, Sendable {
 }
 
 enum KQueuePoller {
-    private typealias KEvent = Darwin.kevent
-
-    static func wait(socket: Int32, events: SocketEvents, timeout: TimeInterval?) throws -> Bool {
-        let queue = kqueue()
-        guard queue >= 0 else {
-            throw RemoteShellError.socketError(code: errno, message: String(cString: strerror(errno)))
-        }
-        defer { close(queue) }
-
-        var changes = [KEvent]()
-        if events.contains(.read) {
-            var change = KEvent()
-            change.ident = UInt(socket)
-            change.filter = Int16(EVFILT_READ)
-            change.flags = UInt16(EV_ADD | EV_ENABLE)
-            change.fflags = 0
-            change.data = 0
-            change.udata = nil
-            changes.append(change)
-        }
-        if events.contains(.write) {
-            var change = KEvent()
-            change.ident = UInt(socket)
-            change.filter = Int16(EVFILT_WRITE)
-            change.flags = UInt16(EV_ADD | EV_ENABLE)
-            change.fflags = 0
-            change.data = 0
-            change.udata = nil
-            changes.append(change)
-        }
-
-        var outputEvent = KEvent()
-        var timeoutSpec = timespec()
-        let result: Int32 = changes.withUnsafeBufferPointer { buffer in
-            let timeoutPtr: UnsafePointer<timespec>? = {
-                guard let timeout else { return nil }
-                let clamped = max(timeout, 0)
-                timeoutSpec.tv_sec = Int(clamped)
-                timeoutSpec.tv_nsec = Int((clamped - Double(timeoutSpec.tv_sec)) * 1_000_000_000)
-                return withUnsafePointer(to: &timeoutSpec) { $0 }
-            }()
-            return Darwin.kevent(queue, buffer.baseAddress, Int32(buffer.count), &outputEvent, 1, timeoutPtr)
-        }
-        if result == 0 {
-            return false
-        }
-        if result < 0 {
-            throw RemoteShellError.socketError(code: errno, message: String(cString: strerror(errno)))
-        }
-        return true
-    }
-
     static func waitAsync(socket: Int32, events: SocketEvents, timeout: TimeInterval?) async throws -> Bool {
-        try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .utility).async {
-                do {
-                    let ready = try wait(socket: socket, events: events, timeout: timeout)
-                    continuation.resume(returning: ready)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
+        guard !events.isEmpty else { return false }
+        return try await withCheckedThrowingContinuation { continuation in
+            let queue = DispatchQueue.global(qos: .utility)
+            let lock = NSLock()
+            var completed = false
+            var sources: [DispatchSourceProtocol] = []
+            var timeoutItem: DispatchWorkItem?
+
+            func finish(_ ready: Bool) {
+                lock.lock()
+                defer { lock.unlock() }
+                guard !completed else { return }
+                completed = true
+                timeoutItem?.cancel()
+                sources.forEach { $0.cancel() }
+                continuation.resume(returning: ready)
+            }
+
+            if let timeout, timeout <= 0 {
+                finish(false)
+                return
+            }
+
+            if events.contains(.read) {
+                let source = DispatchSource.makeReadSource(fileDescriptor: Int(socket), queue: queue)
+                source.setEventHandler { finish(true) }
+                source.setCancelHandler {}
+                source.resume()
+                sources.append(source)
+            }
+
+            if events.contains(.write) {
+                let source = DispatchSource.makeWriteSource(fileDescriptor: Int(socket), queue: queue)
+                source.setEventHandler { finish(true) }
+                source.setCancelHandler {}
+                source.resume()
+                sources.append(source)
+            }
+
+            if let timeout, timeout > 0 {
+                let item = DispatchWorkItem { finish(false) }
+                timeoutItem = item
+                queue.asyncAfter(deadline: .now() + timeout, execute: item)
             }
         }
     }

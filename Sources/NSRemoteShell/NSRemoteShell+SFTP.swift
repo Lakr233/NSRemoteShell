@@ -24,7 +24,7 @@ public extension NSRemoteShell {
 
     func listFiles(at path: String) async throws -> [RemoteFile] {
         let (session, sftp) = try requireSFTP()
-        let handle = try await openSFTPHandle(session: session, sftp: sftp, path: path, flags: 0, mode: 0, openType: LIBSSH2_SFTP_OPENDIR)
+        let handle = try await openSFTPHandle(session: session, sftp: sftp, path: path, flags: 0, mode: 0, openType: Int(LIBSSH2_SFTP_OPENDIR))
         defer { _ = closeSFTPHandle(handle) }
 
         var results: [RemoteFile] = []
@@ -34,7 +34,12 @@ public extension NSRemoteShell {
             var attributes = LIBSSH2_SFTP_ATTRIBUTES()
             let readCount = buffer.withUnsafeMutableBytes { raw in
                 let ptr = raw.bindMemory(to: Int8.self).baseAddress
-                return Int(libssh2_sftp_readdir(handle, ptr, raw.count, &attributes))
+                return Int(libssh2_sftp_readdir_ex(handle,
+                                                   ptr,
+                                                   raw.count,
+                                                   nil,
+                                                   0,
+                                                   &attributes))
             }
             if readCount > 0 {
                 let name = String(decoding: buffer.prefix(readCount), as: UTF8.self)
@@ -60,13 +65,13 @@ public extension NSRemoteShell {
 
     func fileInfo(at path: String) async throws -> RemoteFile {
         let (session, sftp) = try requireSFTP()
-        let handle = try await openSFTPHandle(session: session, sftp: sftp, path: path, flags: UInt32(LIBSSH2_FXF_READ), mode: 0, openType: LIBSSH2_SFTP_OPENFILE)
+        let handle = try await openSFTPHandle(session: session, sftp: sftp, path: path, flags: UInt(LIBSSH2_FXF_READ), mode: 0, openType: Int(LIBSSH2_SFTP_OPENFILE))
         defer { _ = closeSFTPHandle(handle) }
 
         var attributes = LIBSSH2_SFTP_ATTRIBUTES()
         let deadline = Date().addingTimeInterval(configuration.timeout)
         while true {
-            let rc = libssh2_sftp_fstat(handle, &attributes)
+            let rc = libssh2_sftp_fstat_ex(handle, &attributes, 0)
             if rc == 0 {
                 break
             }
@@ -88,7 +93,7 @@ public extension NSRemoteShell {
         }
         let deadline = Date().addingTimeInterval(configuration.timeout)
         while true {
-            let flags = UInt32(LIBSSH2_SFTP_RENAME_OVERWRITE | LIBSSH2_SFTP_RENAME_ATOMIC | LIBSSH2_SFTP_RENAME_NATIVE)
+            let flags = Int(LIBSSH2_SFTP_RENAME_OVERWRITE | LIBSSH2_SFTP_RENAME_ATOMIC | LIBSSH2_SFTP_RENAME_NATIVE)
             let rc = path.withCString { source in
                 newPath.withCString { destination in
                     libssh2_sftp_rename_ex(sftp,
@@ -119,7 +124,7 @@ public extension NSRemoteShell {
         }
         let deadline = Date().addingTimeInterval(configuration.timeout)
         while true {
-            let mode = UInt32(LIBSSH2_SFTP_S_IRWXU | LIBSSH2_SFTP_S_IRGRP | LIBSSH2_SFTP_S_IXGRP | LIBSSH2_SFTP_S_IROTH | LIBSSH2_SFTP_S_IXOTH)
+            let mode = Int(LIBSSH2_SFTP_S_IRWXU | LIBSSH2_SFTP_S_IRGRP | LIBSSH2_SFTP_S_IXGRP | LIBSSH2_SFTP_S_IROTH | LIBSSH2_SFTP_S_IXOTH)
             let rc = path.withCString { cPath in
                 libssh2_sftp_mkdir_ex(sftp, cPath, UInt32(strlen(cPath)), mode)
             }
@@ -260,9 +265,9 @@ private extension NSRemoteShell {
         session: SSHSession,
         sftp: OpaquePointer,
         path: String,
-        flags: UInt32,
-        mode: Int32,
-        openType: Int32
+        flags: UInt,
+        mode: Int,
+        openType: Int
     ) async throws -> OpaquePointer {
         let deadline = Date().addingTimeInterval(configuration.timeout)
         while true {
@@ -274,7 +279,7 @@ private extension NSRemoteShell {
                     sftp,
                     cPath,
                     UInt32(strlen(cPath)),
-                    UInt(flags),
+                    flags,
                     mode,
                     openType
                 )
@@ -371,7 +376,7 @@ private extension NSRemoteShell {
                     session.session,
                     cPath,
                     Int32(mode & 0o644),
-                    size,
+                    Int64(size),
                     0,
                     0
                 )

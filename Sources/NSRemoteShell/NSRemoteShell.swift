@@ -38,8 +38,8 @@ public actor NSRemoteShell {
         self.configuration = configuration
     }
 
-    public convenience init(host: String, port: Int = 22, timeout: TimeInterval = 8) {
-        self.init(configuration: Configuration(host: host, port: port, timeout: timeout))
+    public init(host: String, port: Int = 22, timeout: TimeInterval = 8) {
+        self.configuration = Configuration(host: host, port: port, timeout: timeout)
     }
 
     public func updateConfiguration(_ update: (inout Configuration) -> Void) {
