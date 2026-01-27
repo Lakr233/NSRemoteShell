@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Start SSH test server
+        run: |
+          set -euo pipefail
+          WORK_DIR="${RUNNER_TEMP}/sshd"
+          mkdir -p "${WORK_DIR}"
+          ssh-keygen -t ed25519 -f "${WORK_DIR}/ssh_host_ed25519_key" -N ""
+          ssh-keygen -t ed25519 -f "${WORK_DIR}/id_ed25519" -N ""
+          cat "${WORK_DIR}/id_ed25519.pub" > "${WORK_DIR}/authorized_keys"
+          USERNAME="$(whoami)"
+          {
+            echo "TEST_SSH_USER=${USERNAME}"
+            echo "TEST_SSH_DIR=${WORK_DIR}"
+          } >> "${GITHUB_ENV}"
+          cat > "${WORK_DIR}/sshd_config" <<EOF
+          Port 2222
+          ListenAddress 127.0.0.1
+          HostKey ${WORK_DIR}/ssh_host_ed25519_key
+          AuthorizedKeysFile ${WORK_DIR}/authorized_keys
+          PasswordAuthentication no
+          PubkeyAuthentication yes
+          ChallengeResponseAuthentication no
+          UsePAM no
+          PermitRootLogin no
+          AllowUsers ${USERNAME}
+          AllowTcpForwarding yes
+          GatewayPorts yes
+          StrictModes no
+          PidFile ${WORK_DIR}/sshd.pid
+          Subsystem sftp /usr/libexec/sftp-server
+          LogLevel VERBOSE
+          EOF
+          sudo /usr/sbin/sshd -f "${WORK_DIR}/sshd_config" -E "${WORK_DIR}/sshd.log"
+          sleep 1
+
+      - name: Run tests
+        env:
+          NSREMOTE_SSH_HOST: 127.0.0.1
+          NSREMOTE_SSH_PORT: "2222"
+          NSREMOTE_SSH_USERNAME: ${{ env.TEST_SSH_USER }}
+          NSREMOTE_SSH_PUBLIC_KEY: ${{ env.TEST_SSH_DIR }}/id_ed25519.pub
+          NSREMOTE_SSH_PRIVATE_KEY: ${{ env.TEST_SSH_DIR }}/id_ed25519
+          NSREMOTE_SSH_TIMEOUT: "15"
+        run: |
+          set -euo pipefail
+          swift test
+
+      - name: Dump SSHD log on failure
+        if: failure()
+        run: |
+          set -euo pipefail
+          cat "${RUNNER_TEMP}/sshd/sshd.log" || true

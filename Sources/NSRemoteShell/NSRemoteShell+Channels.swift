@@ -13,7 +13,7 @@ public extension NSRemoteShell {
     ) async throws -> Int32 {
         guard let session else { throw RemoteShellError.disconnected }
         let channel = try await openSessionChannel(session: session)
-        defer { closeChannel(channel) }
+        defer { closeChannel(session: session, channel) }
 
         let rc: Int32 = try await session.retrying(timeout: timeout ?? configuration.timeout, operation: {
             let execName = "exec"
@@ -61,7 +61,7 @@ public extension NSRemoteShell {
             }
 
             if !didRead {
-                let eof = libssh2_channel_eof(channel)
+                let eof = session.withLock { libssh2_channel_eof(channel) }
                 if eof == 1 {
                     break
                 }
@@ -69,7 +69,7 @@ public extension NSRemoteShell {
             }
         }
 
-        let exitStatus = libssh2_channel_get_exit_status(channel)
+        let exitStatus = session.withLock { libssh2_channel_get_exit_status(channel) }
         return exitStatus
     }
 
@@ -83,7 +83,7 @@ public extension NSRemoteShell {
     ) async throws {
         guard let session else { throw RemoteShellError.disconnected }
         let channel = try await openSessionChannel(session: session)
-        defer { closeChannel(channel) }
+        defer { closeChannel(session: session, channel) }
 
         if let terminalType {
             let rc: Int32 = try await session.retrying(timeout: configuration.timeout, operation: {
@@ -148,7 +148,7 @@ public extension NSRemoteShell {
                 continue
             }
 
-            let eof = libssh2_channel_eof(channel)
+            let eof = session.withLock { libssh2_channel_eof(channel) }
             if eof == 1 {
                 break
             }
@@ -166,17 +166,19 @@ private extension NSRemoteShell {
                 throw RemoteShellError.timeout
             }
             let sessionName = "session"
-            let channel = sessionName.withCString { namePtr in
-                libssh2_channel_open_ex(session.session,
-                                        namePtr,
-                                        UInt32(sessionName.utf8.count),
-                                        SSHConstants.channelWindowSize,
-                                        SSHConstants.channelPacketSize,
-                                        nil,
-                                        0)
+            let channel = session.withLock {
+                sessionName.withCString { namePtr in
+                    libssh2_channel_open_ex(session.session,
+                                            namePtr,
+                                            UInt32(sessionName.utf8.count),
+                                            SSHConstants.channelWindowSize,
+                                            SSHConstants.channelPacketSize,
+                                            nil,
+                                            0)
+                }
             }
             if let channel { return channel }
-            let rc = libssh2_session_last_errno(session.session)
+            let rc = session.withLock { libssh2_session_last_errno(session.session) }
             if rc == LIBSSH2_ERROR_EAGAIN {
                 try await session.waitForSocket(deadline: deadline)
                 continue

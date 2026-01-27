@@ -1,6 +1,12 @@
 import Foundation
 import CSSH2
 
+private func forwardLog(_ message: String) {
+    if ProcessInfo.processInfo.environment["NSREMOTE_FORWARD_DEBUG"] == "1" {
+        print("PortForward: \(message)")
+    }
+}
+
 public extension NSRemoteShell {
     func startLocalPortForward(
         localPort: Int,
@@ -97,6 +103,7 @@ private extension NSRemoteShell {
                 continue
             }
             try? SocketUtilities.setNonBlocking(client)
+            forwardLog("local forward accepted client")
 
             do {
                 let channel = try await openDirectChannel(
@@ -106,6 +113,7 @@ private extension NSRemoteShell {
                     originHost: "127.0.0.1",
                     originPort: localPort
                 )
+                forwardLog("local forward direct channel opened to \(targetHost):\(targetPort)")
                 Task { [weak self] in
                     await self?.bridge(
                         session: session,
@@ -116,6 +124,7 @@ private extension NSRemoteShell {
                     )
                 }
             } catch {
+                forwardLog("local forward channel open failed error=\(error)")
                 SocketUtilities.closeSocket(client)
             }
         }
@@ -130,18 +139,21 @@ private extension NSRemoteShell {
         shouldContinue: @Sendable @escaping () -> Bool
     ) async {
         defer {
-            while libssh2_channel_forward_cancel(listener) == LIBSSH2_ERROR_EAGAIN {}
+            while session.withLock({ libssh2_channel_forward_cancel(listener) }) == LIBSSH2_ERROR_EAGAIN {}
         }
 
         while await !state.isCancelled(), shouldContinue(), isConnected {
             guard let channel = await acceptRemoteChannel(session: session, listener: listener) else {
                 continue
             }
+            forwardLog("remote forward accepted channel")
             let socket = try? SocketUtilities.createConnectedSocket(host: targetHost, port: targetPort, nonBlocking: true)
             guard let socket else {
-                closeChannel(channel)
+                forwardLog("remote forward target connect failed to \(targetHost):\(targetPort)")
+                closeChannel(session: session, channel)
                 continue
             }
+            forwardLog("remote forward connected to \(targetHost):\(targetPort)")
             Task { [weak self] in
                 await self?.bridge(
                     session: session,
@@ -161,17 +173,19 @@ private extension NSRemoteShell {
             if deadline.timeIntervalSinceNow <= 0 {
                 throw RemoteShellError.timeout
             }
-            let listener = libssh2_channel_forward_listen_ex(
-                session.session,
-                nil,
-                Int32(remotePort),
-                &boundPort,
-                Int32(SSHConstants.socketQueueSize)
-            )
+            let listener = session.withLock {
+                libssh2_channel_forward_listen_ex(
+                    session.session,
+                    nil,
+                    Int32(remotePort),
+                    &boundPort,
+                    Int32(SSHConstants.socketQueueSize)
+                )
+            }
             if let listener {
                 return (listener, Int(boundPort))
             }
-            if libssh2_session_last_errno(session.session) == LIBSSH2_ERROR_EAGAIN {
+            if session.withLock({ libssh2_session_last_errno(session.session) }) == LIBSSH2_ERROR_EAGAIN {
                 try await session.waitForSocket(deadline: deadline)
                 continue
             }
@@ -185,10 +199,10 @@ private extension NSRemoteShell {
             if deadline.timeIntervalSinceNow <= 0 {
                 return nil
             }
-            if let channel = libssh2_channel_forward_accept(listener) {
+            if let channel = session.withLock({ libssh2_channel_forward_accept(listener) }) {
                 return channel
             }
-            if libssh2_session_last_errno(session.session) == LIBSSH2_ERROR_EAGAIN {
+            if session.withLock({ libssh2_session_last_errno(session.session) }) == LIBSSH2_ERROR_EAGAIN {
                 try? await session.waitForSocket(deadline: deadline)
                 continue
             }
@@ -208,21 +222,23 @@ private extension NSRemoteShell {
             if deadline.timeIntervalSinceNow <= 0 {
                 throw RemoteShellError.timeout
             }
-            let channel = targetHost.withCString { targetCString in
-                originHost.withCString { originCString in
-                    libssh2_channel_direct_tcpip_ex(
-                        session.session,
-                        targetCString,
-                        Int32(targetPort),
-                        originCString,
-                        Int32(originPort)
-                    )
+            let channel = session.withLock {
+                targetHost.withCString { targetCString in
+                    originHost.withCString { originCString in
+                        libssh2_channel_direct_tcpip_ex(
+                            session.session,
+                            targetCString,
+                            Int32(targetPort),
+                            originCString,
+                            Int32(originPort)
+                        )
+                    }
                 }
             }
             if let channel {
                 return channel
             }
-            if libssh2_session_last_errno(session.session) == LIBSSH2_ERROR_EAGAIN {
+            if session.withLock({ libssh2_session_last_errno(session.session) }) == LIBSSH2_ERROR_EAGAIN {
                 try await session.waitForSocket(deadline: deadline)
                 continue
             }
@@ -235,34 +251,94 @@ private extension NSRemoteShell {
         channel: OpaquePointer,
         socket: Int32,
         state: ForwardState,
-        shouldContinue: @Sendable () -> Bool
+        shouldContinue: @Sendable @escaping () -> Bool
     ) async {
         defer {
             SocketUtilities.closeSocket(socket)
-            closeChannel(channel)
+            closeChannel(session: session, channel)
         }
 
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { [weak self] in
+                guard let self else { return }
+                await self.pumpSocketToChannel(
+                    session: session,
+                    channel: channel,
+                    socket: socket,
+                    state: state,
+                    shouldContinue: shouldContinue
+                )
+            }
+            group.addTask { [weak self] in
+                guard let self else { return }
+                await self.pumpChannelToSocket(
+                    session: session,
+                    channel: channel,
+                    socket: socket,
+                    state: state,
+                    shouldContinue: shouldContinue
+                )
+            }
+            _ = await group.next()
+            group.cancelAll()
+        }
+    }
+
+    func pumpSocketToChannel(
+        session: SSHSession,
+        channel: OpaquePointer,
+        socket: Int32,
+        state: ForwardState,
+        shouldContinue: @Sendable @escaping () -> Bool
+    ) async {
         var buffer = [UInt8](repeating: 0, count: SSHConstants.bufferSize)
         while await !state.isCancelled(), shouldContinue(), isConnected {
-            var didWork = false
-
             let recvCount = buffer.withUnsafeMutableBytes { raw in
                 recv(socket, raw.baseAddress, raw.count, 0)
             }
             if recvCount > 0 {
+                forwardLog("socket->channel bytes=\(recvCount)")
                 do {
                     try await writeChannelBytes(session: session, channel: channel, buffer: buffer, count: Int(recvCount))
-                    didWork = true
                 } catch {
+                    forwardLog("socket->channel write failed error=\(error)")
                     break
                 }
-            } else if recvCount == 0 {
+                continue
+            }
+            if recvCount == 0 {
+                forwardLog("socket closed")
                 break
             }
+            let code = errno
+            if code == EAGAIN || code == EWOULDBLOCK {
+                _ = try? await KQueuePoller.waitAsync(socket: socket, events: [.read], timeout: 1)
+                continue
+            }
+            forwardLog("socket recv failed errno=\(code) message=\(String(cString: strerror(code)))")
+            break
+        }
+    }
 
+    func pumpChannelToSocket(
+        session: SSHSession,
+        channel: OpaquePointer,
+        socket: Int32,
+        state: ForwardState,
+        shouldContinue: @Sendable @escaping () -> Bool
+    ) async {
+        var buffer = [UInt8](repeating: 0, count: SSHConstants.bufferSize)
+        while await !state.isCancelled(), shouldContinue(), isConnected {
             do {
-                let channelRead = try await readChannelBytes(session: session, channel: channel, buffer: &buffer, stderr: false, deadline: nil)
+                let channelRead = try await readChannelBytes(
+                    session: session,
+                    channel: channel,
+                    buffer: &buffer,
+                    stderr: false,
+                    deadline: nil
+                )
                 if channelRead > 0 {
+                    forwardLog("channel->socket bytes=\(channelRead)")
                     var sent = 0
                     while sent < channelRead {
                         let sendCount = buffer.withUnsafeBytes { raw in
@@ -273,39 +349,23 @@ private extension NSRemoteShell {
                             sent += sendCount
                             continue
                         }
-                        if errno == EAGAIN || errno == EWOULDBLOCK {
+                        let code = errno
+                        if code == EAGAIN || code == EWOULDBLOCK {
                             _ = try await KQueuePoller.waitAsync(socket: socket, events: [.write], timeout: nil)
                             continue
                         }
+                        forwardLog("channel->socket send failed errno=\(code) message=\(String(cString: strerror(code)))")
                         sent = channelRead
                         break
                     }
-                    didWork = true
+                    continue
                 }
+                forwardLog("channel closed")
+                break
             } catch {
+                forwardLog("channel read failed error=\(error)")
                 break
             }
-
-            if !didWork {
-                do {
-                    try await waitForForwardActivity(localSocket: socket, session: session)
-                } catch {
-                    break
-                }
-            }
-        }
-    }
-
-    func waitForForwardActivity(localSocket: Int32, session: SSHSession) async throws {
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            group.addTask {
-                _ = try await KQueuePoller.waitAsync(socket: localSocket, events: [.read], timeout: nil)
-            }
-            group.addTask {
-                try await session.waitForSocket(deadline: nil)
-            }
-            _ = try await group.next()
-            group.cancelAll()
         }
     }
 }

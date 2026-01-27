@@ -5,6 +5,7 @@ final class SSHSession {
     let session: OpaquePointer
     let socket: Int32
     var timeout: TimeInterval
+    private let lock = NSLock()
 
     init(session: OpaquePointer, socket: Int32, timeout: TimeInterval) {
         self.session = session
@@ -12,8 +13,14 @@ final class SSHSession {
         self.timeout = timeout
     }
 
+    func withLock<T>(_ body: () throws -> T) rethrows -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return try body()
+    }
+
     func waitForSocket(deadline: Date?) async throws {
-        let blockDirections = libssh2_session_block_directions(session)
+        let blockDirections = withLock { libssh2_session_block_directions(session) }
         var events: SocketEvents = []
         if (blockDirections & LIBSSH2_SESSION_BLOCK_INBOUND) != 0 {
             events.insert(.read)
@@ -21,9 +28,7 @@ final class SSHSession {
         if (blockDirections & LIBSSH2_SESSION_BLOCK_OUTBOUND) != 0 {
             events.insert(.write)
         }
-        if events.isEmpty {
-            events = [.read]
-        }
+        events.insert(.read)
 
         let remaining = deadline?.timeIntervalSinceNow
         if let remaining, remaining <= 0 {
@@ -38,7 +43,7 @@ final class SSHSession {
     func retrying<T>(timeout: TimeInterval?, operation: () -> T, shouldRetry: (T) -> Bool) async throws -> T {
         let deadline = timeout.map { Date().addingTimeInterval($0) }
         while true {
-            let result = operation()
+            let result = withLock { operation() }
             if shouldRetry(result) {
                 try await waitForSocket(deadline: deadline)
                 continue
@@ -48,6 +53,6 @@ final class SSHSession {
     }
 
     func lastError(fallback: String) -> RemoteShellError {
-        RemoteShellError.libssh2(session: session, fallback: fallback)
+        withLock { RemoteShellError.libssh2(session: session, fallback: fallback) }
     }
 }

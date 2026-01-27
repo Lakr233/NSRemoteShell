@@ -185,7 +185,7 @@ public extension NSRemoteShell {
         let size = (attributes[.size] as? NSNumber)?.uint64Value ?? 0
         let mode = (attributes[.posixPermissions] as? NSNumber)?.intValue ?? 0o644
         let channel = try await openSCPSend(session: session, path: remoteFile.path, mode: mode, size: size)
-        defer { closeChannel(channel) }
+        defer { closeChannel(session: session, channel) }
 
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
@@ -440,7 +440,7 @@ private extension NSRemoteShell {
         }
 
         let (channel, size) = try await openSCPReceive(session: session, path: remotePath)
-        defer { closeChannel(channel) }
+        defer { closeChannel(session: session, channel) }
 
         if FileManager.default.fileExists(atPath: targetURL.path) {
             try FileManager.default.removeItem(at: targetURL)
