@@ -1,144 +1,72 @@
 # NSRemoteShell
 
-Remote shell using libssh2 with Objective-C. Thread safe implementation. Available as Swift Package.
+Swift Concurrency-first SSH client built on libssh2 with kqueue-driven socket waits for lower power usage.
 
 ## Usage
 
-In our design, all operation is blocked, and is recommended to call in background thread.
+```swift
+import NSRemoteShell
 
+let shell = NSRemoteShell(host: "example.com")
+try await shell.connect()
+try await shell.authenticate(username: "user", password: "secret")
+
+let exitCode = try await shell.execute("uptime") { output in
+    print(output)
+}
+
+await shell.disconnect()
 ```
-NSRemoteShell()
-    .setupConnectionHost(host)
-    .setupConnectionPort(NSNumber(value: port))
-    .requestConnectAndWait()
-    .authenticate(with: username, andPassword: password)
-    .executeRemote(
-        command,
-        withExecTimeout: .init(value: 0)
-    ) {
-        createOutput($0) 
-    } withContinuationHandler: {
-        commandStatus != .terminating
+
+## Shell Session
+
+```swift
+try await shell.openShell(
+    terminalType: "xterm-256color",
+    terminalSize: { CGSize(width: 120, height: 40) },
+    writeData: { readNextInputChunk() },
+    onOutput: { print($0) }
+)
+```
+
+## Port Forwarding
+
+```swift
+let handle = try await shell.startLocalPortForward(
+    localPort: 8080,
+    targetHost: "127.0.0.1",
+    targetPort: 80
+)
+
+// ...
+await handle.cancel()
+```
+
+## File Transfer (SFTP/SCP)
+
+```swift
+try await shell.connectSFTP()
+
+let files = try await shell.listFiles(at: "/var/log")
+let info = try await shell.fileInfo(at: "/var/log/system.log")
+
+try await shell.uploadFile(
+    at: "/tmp/local.log",
+    to: "/tmp",
+    onProgress: { progress, speed in
+        print(progress.fractionCompleted, speed)
     }
+)
+
+try await shell.downloadFile(
+    at: "/var/log/system.log",
+    to: "/tmp/system.log",
+    onProgress: { progress, speed in
+        print(progress.fractionCompleted, speed)
+    }
+)
 ```
 
-To connect, call setup function to set host and port. Class is designed with Swift function-like syntax chain.
+## License
 
-```
-- (instancetype)setupConnectionHost:(nonnull NSString *)targetHost;
-- (instancetype)setupConnectionPort:(nonnull NSNumber *)targetPort;
-- (instancetype)setupConnectionTimeout:(nonnull NSNumber *)timeout;
-
-- (instancetype)requestConnectAndWait;
-- (instancetype)requestDisconnectAndWait;
-```
-
-There is two authenticate method provided. Authenticate is required after connect.
-
-**Do not change username when authenticateing the same session.**
-
-```
-- (instancetype)authenticateWith:(nonnull NSString *)username
-                     andPassword:(nonnull NSString *)password;
-- (instancetype)authenticateWith:(NSString *)username
-                            andPublicKey:(nullable NSString *)publicKey
-                            andPrivateKey:(NSString *)privateKey
-                             andPassword:(nullable NSString *)password;
-```
-
-For various session property, see property list.
-
-```
-@property (nonatomic, readwrite, nullable, strong) NSString *resolvedRemoteIpAddress;
-@property (nonatomic, readwrite, nullable, strong) NSString *remoteBanner;
-@property (nonatomic, readwrite, nullable, strong) NSString *remoteFingerPrint;
-
-@property (nonatomic, readwrite, getter=isConnected) BOOL connected;
-@property (nonatomic, readwrite, getter=isAuthenticated) BOOL authenticated;
-```
-
-Request either command channel or shell channel with designated API, and do not access unexposed values. It may break the ARC or crash the app.
-
-```
-- (instancetype)executeRemote:(NSString*)command
-             withExecTimeout:(NSNumber*)timeoutSecond
-                  withOutput:(nullable void (^)(NSString*))responseDataBlock
-     withContinuationHandler:(nullable BOOL (^)(void))continuationBlock;
-
-- (instancetype)openShellWithTerminal:(nullable NSString*)terminalType
-                    withterminalSize:(nullable CGSize (^)(void))requestterminalSize
-                       withWriteData:(nullable NSString* (^)(void))requestWriteData
-                          withOutput:(void (^)(NSString * _Nonnull))responseDataBlock
-             withContinuationHandler:(BOOL (^)(void))continuationBlock;
-```
-
-On execution, once your status is changed, to apply your status quickly, call explicitRequestStatusPickup(). Take an example, when shouldTerminate changes, call this function to terminate this channel immediately or wait for the event loop to pick up on a guaranteed schedule.
-
-```
-- (void)explicitRequestStatusPickup;
-```
-
-## Thread Safe
-
-We implemented thread safe by using NSEventLoop to serialize single NSRemoteShell instance. Multiple NSRemoteShell object will be executed in parallel. Channel operations will be executed in serial for each NSRemoteShell.
-
-```
-@interface TSEventLoop : NSObject
-
-+(id)sharedLoop;
-
-- (void)explicitRequestHandle;
-- (void)delegatingRemoteWith:(NSRemoteShell*)object;
-
-@end
-```
-
-The event loop will guarantee status pickup is thread safe, called several times per second. To improve the performance and user experience, we use a dispatch source of your session's socket to trigger the event loop handler when you have at least one channel opened when data arrived. Check following code to see how it works.
-
-```
-- (void)unsafeDispatchSourceMakeDecision
-```
-
-All event loop will call a NSRemoteShell objects' handleRequestsIfNeeded method, we deal with control blocks first, and then iterate over all channel to see if data available.
-
-```
-for (dispatch_block_t invocation in self.requestInvokations) {
-    if (invocation) { invocation(); }
-}
-[self.requestInvokations removeAllObjects];
-for (NSRemoteChannel *channelObject in [self.associatedChannel copy]) {
-    [channelObject insanityUncheckedEventLoop];
-}
-```
-
-ARC will take place to disconnect if a shell object is no longer holds. You can close the session manually or let ARC handle it.
-
-```
-- (void)dealloc {
-    NSLog(@"shell object at %p deallocating", self);
-    [self unsafeDisconnect];
-}
-```
-
-## LICENSE
-
-NSRemoteShell is licensed under [MIT License - Lakr's Edition].
-
-```
-Permissions
-- Commercial use
-- Modification
-- Distribution
-- Private use
-
-Limitations
-- NO Liability
-- NO Warranty
-
-Conditions
-- NO Conditions
-```
-
----
-
-Copyright © 2024 Lakr Aream. All Rights Reserved.
+MIT (Lakr's Edition).

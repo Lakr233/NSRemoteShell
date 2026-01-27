@@ -4,6 +4,12 @@ import PackageDescription
 
 let package = Package(
     name: "NSRemoteShell",
+    platforms: [
+        .macOS(.v10_15),
+        .iOS(.v13),
+        .tvOS(.v13),
+        .watchOS(.v6),
+    ],
     products: [
         .library(
             name: "NSRemoteShell",
@@ -11,7 +17,7 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(url: "https://github.com/Lakr233/libssh2-spm", from: "1.0.0"),
+        .package(url: "https://github.com/Lakr233/libssh2-spm", from: "2.0.3"),
     ],
     targets: [
         .target(

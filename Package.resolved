@@ -6,8 +6,8 @@
         "repositoryURL": "https://github.com/Lakr233/libssh2-spm",
         "state": {
           "branch": null,
-          "revision": "239cb276c2322335eaadc86b8119f74602215424",
-          "version": "1.11.0"
+          "revision": "d211fdf8587532cd952927d9f9f3f5167ce6a77f",
+          "version": "2.0.3"
         }
       },
       {
@@ -15,8 +15,8 @@
         "repositoryURL": "https://github.com/Lakr233/openssl-spm.git",
         "state": {
           "branch": null,
-          "revision": "327471fc025dea2adf7cd4e80257e76cf7e95851",
-          "version": "3.2.1"
+          "revision": "a96e5c4e0316a1006957ecd089bd313e54e55bde",
+          "version": "3.6.0"
         }
       }
     ]
