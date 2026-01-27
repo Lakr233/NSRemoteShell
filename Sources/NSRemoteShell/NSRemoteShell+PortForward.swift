@@ -10,6 +10,13 @@ public extension NSRemoteShell {
     ) async throws -> PortForwardHandle {
         guard let session else { throw RemoteShellError.disconnected }
         let listenSocket = try SocketUtilities.createListener(on: localPort)
+        let boundPort: Int
+        do {
+            boundPort = try SocketUtilities.boundPort(for: listenSocket)
+        } catch {
+            SocketUtilities.closeSocket(listenSocket)
+            throw error
+        }
         let state = ForwardState()
         let id = UUID()
         let task = Task { [weak self] in
@@ -17,7 +24,7 @@ public extension NSRemoteShell {
             await self.runLocalForward(
                 session: session,
                 listenSocket: listenSocket,
-                localPort: localPort,
+                localPort: boundPort,
                 targetHost: targetHost,
                 targetPort: targetPort,
                 state: state,
@@ -25,7 +32,7 @@ public extension NSRemoteShell {
             )
         }
         forwardTasks[id] = task
-        return PortForwardHandle(state: state, boundPort: localPort)
+        return PortForwardHandle(state: state, boundPort: boundPort)
     }
 
     func startRemotePortForward(

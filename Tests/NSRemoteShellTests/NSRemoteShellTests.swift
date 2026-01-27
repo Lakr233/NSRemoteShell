@@ -72,7 +72,7 @@ private final class LocalEchoServer: @unchecked Sendable {
 
     init() throws {
         socket = try SocketUtilities.createListener(on: 0)
-        port = try LocalEchoServer.boundPort(for: socket)
+        port = try SocketUtilities.boundPort(for: socket)
         DispatchQueue.global(qos: .utility).async { [weak self] in
             self?.run()
         }
@@ -149,19 +149,6 @@ private final class LocalEchoServer: @unchecked Sendable {
         return stopped
     }
 
-    private static func boundPort(for socket: Int32) throws -> Int {
-        var address = sockaddr_in()
-        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
-        let result = withUnsafeMutablePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                getsockname(socket, $0, &length)
-            }
-        }
-        guard result == 0 else {
-            throw RemoteShellError.socketError(code: Int32(errno), message: String(cString: strerror(errno)))
-        }
-        return Int(UInt16(bigEndian: address.sin_port))
-    }
 }
 
 private func requireConfig() throws -> SSHTestConfig {
@@ -229,46 +216,59 @@ private func executeCapture(
     return (status, output.value())
 }
 
-private func runEchoClient(shell: NSRemoteShell, port: Int, payload: String) async throws -> Bool {
-    let pythonScript = "import socket,sys; s=socket.create_connection(('127.0.0.1', \(port)), timeout=5); s.sendall(b'\(payload)'); data=s.recv(1024); sys.stdout.write(data.decode('utf-8', errors='ignore')); s.close()"
-    let netcat = "printf '%s' '\(payload)' | nc"
-    let netcatAlt = "printf '%s' '\(payload)' | netcat"
-    let ncat = "printf '%s' '\(payload)' | ncat"
-    let busyboxNetcat = "printf '%s' '\(payload)' | busybox nc"
-    let socat = "printf '%s' '\(payload)' | socat - TCP:127.0.0.1:\(port),connect-timeout=5"
+private func runLocalEchoClient(port: Int, payload: String, timeout: TimeInterval = 10) async throws -> Bool {
+    let socket = try SocketUtilities.createConnectedSocket(host: "127.0.0.1", port: port, nonBlocking: true)
+    defer { SocketUtilities.closeSocket(socket) }
 
-    let candidates = [
-        "python3 -c \"\(pythonScript)\"",
-        "python -c \"\(pythonScript)\"",
-        "sh -c \"\(netcat) -w 5 127.0.0.1 \(port)\"",
-        "sh -c \"\(netcat) 127.0.0.1 \(port)\"",
-        "sh -c \"\(netcatAlt) -w 5 127.0.0.1 \(port)\"",
-        "sh -c \"\(netcatAlt) 127.0.0.1 \(port)\"",
-        "sh -c \"\(ncat) -w 5 127.0.0.1 \(port)\"",
-        "sh -c \"\(ncat) 127.0.0.1 \(port)\"",
-        "sh -c \"\(busyboxNetcat) -w 5 127.0.0.1 \(port)\"",
-        "sh -c \"\(busyboxNetcat) 127.0.0.1 \(port)\"",
-        "sh -c \"\(socat)\""
-    ]
+    let expected = Array(payload.utf8)
+    var sent = 0
+    let deadline = Date().addingTimeInterval(timeout)
 
-    for command in candidates {
-        let (status, output) = try await executeCapture(shell, command, timeout: 10)
-        if status == 0, output.contains(payload) {
-            return true
+    while sent < expected.count {
+        if deadline.timeIntervalSinceNow <= 0 {
+            return false
         }
-    }
-    return false
-}
-
-private func hasEchoClient(shell: NSRemoteShell) async throws -> Bool {
-    let candidates = ["python3", "python", "nc", "netcat", "ncat", "socat", "busybox"]
-    for candidate in candidates {
-        let (status, _) = try await executeCapture(shell, "command -v \(candidate)")
-        if status == 0 {
-            return true
+        let sendCount = expected.withUnsafeBytes { raw in
+            let ptr = raw.bindMemory(to: Int8.self).baseAddress
+            return send(socket, ptr?.advanced(by: sent), expected.count - sent, 0)
         }
+        if sendCount > 0 {
+            sent += sendCount
+            continue
+        }
+        if errno == EAGAIN || errno == EWOULDBLOCK {
+            _ = try await KQueuePoller.waitAsync(socket: socket, events: [.write], timeout: 1)
+            continue
+        }
+        return false
     }
-    return false
+
+    var received: [UInt8] = []
+    received.reserveCapacity(expected.count)
+    var buffer = [UInt8](repeating: 0, count: 4096)
+
+    while received.count < expected.count {
+        if deadline.timeIntervalSinceNow <= 0 {
+            return false
+        }
+        let readCount = buffer.withUnsafeMutableBytes { raw in
+            recv(socket, raw.baseAddress, raw.count, 0)
+        }
+        if readCount > 0 {
+            received.append(contentsOf: buffer[0..<readCount])
+            continue
+        }
+        if readCount == 0 {
+            break
+        }
+        if errno == EAGAIN || errno == EWOULDBLOCK {
+            _ = try await KQueuePoller.waitAsync(socket: socket, events: [.read], timeout: 1)
+            continue
+        }
+        return false
+    }
+
+    return received.prefix(expected.count).elementsEqual(expected)
 }
 
 final class NSRemoteShellTests: XCTestCase {
@@ -346,40 +346,33 @@ final class NSRemoteShellTests: XCTestCase {
     }
 
     func testPortForwardEchoRoundTrip() async throws {
-        let clientShell = try await connectShell()
-        defer { Task { await clientShell.disconnect() } }
-
-        let canRunEcho = try await hasEchoClient(shell: clientShell)
-        if !canRunEcho {
-            await clientShell.disconnect()
-            throw XCTSkip("Remote host needs python or netcat for port-forward test.")
-        }
+        let echoServer = try LocalEchoServer()
+        defer { echoServer.stop() }
 
         let forwardShell = try await connectShell()
         defer { Task { await forwardShell.disconnect() } }
 
-        let echoServer = try LocalEchoServer()
-        defer { echoServer.stop() }
-
-        let handle = try await forwardShell.startRemotePortForward(
+        let remoteHandle = try await forwardShell.startRemotePortForward(
             remotePort: 0,
             targetHost: "127.0.0.1",
             targetPort: echoServer.port
         )
-        defer { Task { await handle.cancel() } }
+        defer { Task { await remoteHandle.cancel() } }
+
+        let clientShell = try await connectShell()
+        defer { Task { await clientShell.disconnect() } }
+
+        let remotePort = await remoteHandle.boundPort
+        let localHandle = try await clientShell.startLocalPortForward(
+            localPort: 0,
+            targetHost: "127.0.0.1",
+            targetPort: remotePort
+        )
+        defer { Task { await localHandle.cancel() } }
 
         let payload = "NSREMOTE_ECHO_" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
-        let boundPort = await handle.boundPort
-        let didEcho = try await runEchoClient(shell: clientShell, port: boundPort, payload: payload)
-        if !didEcho {
-            await handle.cancel()
-            await forwardShell.disconnect()
-            await clientShell.disconnect()
-            throw XCTSkip("Remote host needs python or netcat for port-forward test.")
-        }
-
-        await handle.cancel()
-        await forwardShell.disconnect()
-        await clientShell.disconnect()
+        let localPort = await localHandle.boundPort
+        let didEcho = try await runLocalEchoClient(port: localPort, payload: payload)
+        XCTAssertTrue(didEcho)
     }
 }

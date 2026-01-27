@@ -169,4 +169,18 @@ enum SocketUtilities {
         }
         return nil
     }
+
+    static func boundPort(for socket: Int32) throws -> Int {
+        var address = sockaddr_in()
+        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let result = withUnsafeMutablePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                getsockname(socket, $0, &length)
+            }
+        }
+        guard result == 0 else {
+            throw RemoteShellError.socketError(code: Int32(errno), message: String(cString: strerror(errno)))
+        }
+        return Int(UInt16(bigEndian: address.sin_port))
+    }
 }

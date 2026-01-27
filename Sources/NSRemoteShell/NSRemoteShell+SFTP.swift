@@ -502,7 +502,7 @@ private extension NSRemoteShell {
                 throw RemoteShellError.timeout
             }
             let channel = path.withCString { cPath in
-                libssh2_scp_recv(session.session, cPath, &info)
+                libssh2_scp_recv2(session.session, cPath, &info)
             }
             if let channel {
                 return (channel, UInt64(info.st_size))
