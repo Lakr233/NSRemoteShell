@@ -34,7 +34,7 @@ enum KQueuePoller {
             }
 
             if events.contains(.read) {
-                let source = DispatchSource.makeReadSource(fileDescriptor: Int(socket), queue: queue)
+                let source = DispatchSource.makeReadSource(fileDescriptor: socket, queue: queue)
                 source.setEventHandler { finish(true) }
                 source.setCancelHandler {}
                 source.resume()
@@ -42,7 +42,7 @@ enum KQueuePoller {
             }
 
             if events.contains(.write) {
-                let source = DispatchSource.makeWriteSource(fileDescriptor: Int(socket), queue: queue)
+                let source = DispatchSource.makeWriteSource(fileDescriptor: socket, queue: queue)
                 source.setEventHandler { finish(true) }
                 source.setCancelHandler {}
                 source.resume()

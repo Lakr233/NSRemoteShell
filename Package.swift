@@ -26,5 +26,9 @@ let package = Package(
                 .product(name: "CSSH2", package: "libssh2-spm"),
             ]
         ),
+        .testTarget(
+            name: "NSRemoteShellTests",
+            dependencies: ["NSRemoteShell"]
+        ),
     ]
 )

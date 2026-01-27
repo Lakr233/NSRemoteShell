@@ -6,7 +6,7 @@ public extension NSRemoteShell {
         localPort: Int,
         targetHost: String,
         targetPort: Int,
-        shouldContinue: @Sendable () -> Bool = { true }
+        shouldContinue: @Sendable @escaping () -> Bool = { true }
     ) async throws -> PortForwardHandle {
         guard let session else { throw RemoteShellError.disconnected }
         let listenSocket = try SocketUtilities.createListener(on: localPort)
@@ -32,7 +32,7 @@ public extension NSRemoteShell {
         remotePort: Int,
         targetHost: String,
         targetPort: Int,
-        shouldContinue: @Sendable () -> Bool = { true }
+        shouldContinue: @Sendable @escaping () -> Bool = { true }
     ) async throws -> PortForwardHandle {
         guard let session else { throw RemoteShellError.disconnected }
         let state = ForwardState()
@@ -71,7 +71,7 @@ private extension NSRemoteShell {
         targetHost: String,
         targetPort: Int,
         state: ForwardState,
-        shouldContinue: @Sendable () -> Bool
+        shouldContinue: @Sendable @escaping () -> Bool
     ) async {
         defer { SocketUtilities.closeSocket(listenSocket) }
         while await !state.isCancelled(), shouldContinue(), isConnected {
@@ -120,7 +120,7 @@ private extension NSRemoteShell {
         targetHost: String,
         targetPort: Int,
         state: ForwardState,
-        shouldContinue: @Sendable () -> Bool
+        shouldContinue: @Sendable @escaping () -> Bool
     ) async {
         defer {
             while libssh2_channel_forward_cancel(listener) == LIBSSH2_ERROR_EAGAIN {}

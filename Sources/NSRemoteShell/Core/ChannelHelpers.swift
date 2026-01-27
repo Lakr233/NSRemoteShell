@@ -13,9 +13,9 @@ extension NSRemoteShell {
             let count: Int = buffer.withUnsafeMutableBytes { raw in
                 let ptr = raw.bindMemory(to: Int8.self).baseAddress
                 if stderr {
-                    return Int(libssh2_channel_read_stderr(channel, ptr, raw.count))
+                    return Int(libssh2_channel_read_ex(channel, Int32(SSH_EXTENDED_DATA_STDERR), ptr, raw.count))
                 }
-                return Int(libssh2_channel_read(channel, ptr, raw.count))
+                return Int(libssh2_channel_read_ex(channel, 0, ptr, raw.count))
             }
             if count == LIBSSH2_ERROR_EAGAIN {
                 try await session.waitForSocket(deadline: deadline)
@@ -38,7 +38,7 @@ extension NSRemoteShell {
         while sent < count {
             let written = buffer.withUnsafeBytes { raw in
                 let ptr = raw.bindMemory(to: Int8.self).baseAddress
-                return Int(libssh2_channel_write(channel, ptr?.advanced(by: sent), count - sent))
+                return Int(libssh2_channel_write_ex(channel, 0, ptr?.advanced(by: sent), count - sent))
             }
             if written == LIBSSH2_ERROR_EAGAIN {
                 try await session.waitForSocket(deadline: nil)

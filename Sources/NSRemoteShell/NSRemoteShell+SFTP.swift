@@ -24,7 +24,14 @@ public extension NSRemoteShell {
 
     func listFiles(at path: String) async throws -> [RemoteFile] {
         let (session, sftp) = try requireSFTP()
-        let handle = try await openSFTPHandle(session: session, sftp: sftp, path: path, flags: 0, mode: 0, openType: Int(LIBSSH2_SFTP_OPENDIR))
+        let handle = try await openSFTPHandle(
+            session: session,
+            sftp: sftp,
+            path: path,
+            flags: CUnsignedLong(0),
+            mode: CLong(0),
+            openType: CInt(LIBSSH2_SFTP_OPENDIR)
+        )
         defer { _ = closeSFTPHandle(handle) }
 
         var results: [RemoteFile] = []
@@ -65,7 +72,14 @@ public extension NSRemoteShell {
 
     func fileInfo(at path: String) async throws -> RemoteFile {
         let (session, sftp) = try requireSFTP()
-        let handle = try await openSFTPHandle(session: session, sftp: sftp, path: path, flags: UInt(LIBSSH2_FXF_READ), mode: 0, openType: Int(LIBSSH2_SFTP_OPENFILE))
+        let handle = try await openSFTPHandle(
+            session: session,
+            sftp: sftp,
+            path: path,
+            flags: CUnsignedLong(LIBSSH2_FXF_READ),
+            mode: CLong(0),
+            openType: CInt(LIBSSH2_SFTP_OPENFILE)
+        )
         defer { _ = closeSFTPHandle(handle) }
 
         var attributes = LIBSSH2_SFTP_ATTRIBUTES()
@@ -93,7 +107,7 @@ public extension NSRemoteShell {
         }
         let deadline = Date().addingTimeInterval(configuration.timeout)
         while true {
-            let flags = Int(LIBSSH2_SFTP_RENAME_OVERWRITE | LIBSSH2_SFTP_RENAME_ATOMIC | LIBSSH2_SFTP_RENAME_NATIVE)
+            let flags = CLong(LIBSSH2_SFTP_RENAME_OVERWRITE | LIBSSH2_SFTP_RENAME_ATOMIC | LIBSSH2_SFTP_RENAME_NATIVE)
             let rc = path.withCString { source in
                 newPath.withCString { destination in
                     libssh2_sftp_rename_ex(sftp,
@@ -124,7 +138,7 @@ public extension NSRemoteShell {
         }
         let deadline = Date().addingTimeInterval(configuration.timeout)
         while true {
-            let mode = Int(LIBSSH2_SFTP_S_IRWXU | LIBSSH2_SFTP_S_IRGRP | LIBSSH2_SFTP_S_IXGRP | LIBSSH2_SFTP_S_IROTH | LIBSSH2_SFTP_S_IXOTH)
+            let mode = CLong(LIBSSH2_SFTP_S_IRWXU | LIBSSH2_SFTP_S_IRGRP | LIBSSH2_SFTP_S_IXGRP | LIBSSH2_SFTP_S_IROTH | LIBSSH2_SFTP_S_IXOTH)
             let rc = path.withCString { cPath in
                 libssh2_sftp_mkdir_ex(sftp, cPath, UInt32(strlen(cPath)), mode)
             }
@@ -265,9 +279,9 @@ private extension NSRemoteShell {
         session: SSHSession,
         sftp: OpaquePointer,
         path: String,
-        flags: UInt,
-        mode: Int,
-        openType: Int
+        flags: CUnsignedLong,
+        mode: CLong,
+        openType: CInt
     ) async throws -> OpaquePointer {
         let deadline = Date().addingTimeInterval(configuration.timeout)
         while true {
