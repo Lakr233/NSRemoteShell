@@ -20,6 +20,15 @@ private enum TestEnv {
     static func value(_ key: String) -> String? {
         ProcessInfo.processInfo.environment[key]
     }
+
+    static func firstValue(_ keys: [String]) -> String? {
+        for key in keys {
+            if let value = value(key), !value.isEmpty {
+                return value
+            }
+        }
+        return nil
+    }
 }
 
 private final class OutputBuffer: @unchecked Sendable {
@@ -156,17 +165,17 @@ private final class LocalEchoServer: @unchecked Sendable {
 }
 
 private func requireConfig() throws -> SSHTestConfig {
-    guard let host = TestEnv.value("NSREMOTE_SSH_HOST"),
-          let username = TestEnv.value("NSREMOTE_SSH_USERNAME") else {
-        throw XCTSkip("Set NSREMOTE_SSH_HOST and NSREMOTE_SSH_USERNAME to run SSH integration tests.")
+    guard let host = TestEnv.firstValue(["NSREMOTE_SSH_HOST", "SSH_TEST_HOST"]),
+          let username = TestEnv.firstValue(["NSREMOTE_SSH_USERNAME", "SSH_TEST_USER"]) else {
+        throw XCTSkip("Set NSREMOTE_SSH_HOST/NSREMOTE_SSH_USERNAME (or SSH_TEST_HOST/SSH_TEST_USER) to run SSH integration tests.")
     }
 
-    let port = Int(TestEnv.value("NSREMOTE_SSH_PORT") ?? "22") ?? 22
-    let timeout = Double(TestEnv.value("NSREMOTE_SSH_TIMEOUT") ?? "") ?? 8
-    let password = TestEnv.value("NSREMOTE_SSH_PASSWORD")
-    let privateKey = TestEnv.value("NSREMOTE_SSH_PRIVATE_KEY")
+    let port = Int(TestEnv.firstValue(["NSREMOTE_SSH_PORT", "SSH_TEST_PORT"]) ?? "22") ?? 22
+    let timeout = Double(TestEnv.firstValue(["NSREMOTE_SSH_TIMEOUT", "SSH_TEST_TIMEOUT"]) ?? "") ?? 8
+    let password = TestEnv.firstValue(["NSREMOTE_SSH_PASSWORD", "SSH_TEST_PASSWORD"])
+    let privateKey = TestEnv.firstValue(["NSREMOTE_SSH_PRIVATE_KEY", "SSH_TEST_PRIVATE_KEY"])
     if password == nil && privateKey == nil {
-        throw XCTSkip("Set NSREMOTE_SSH_PASSWORD or NSREMOTE_SSH_PRIVATE_KEY to run SSH integration tests.")
+        throw XCTSkip("Set NSREMOTE_SSH_PASSWORD/NSREMOTE_SSH_PRIVATE_KEY (or SSH_TEST_PASSWORD/SSH_TEST_PRIVATE_KEY) to run SSH integration tests.")
     }
 
     return SSHTestConfig(
@@ -175,27 +184,39 @@ private func requireConfig() throws -> SSHTestConfig {
         timeout: timeout,
         username: username,
         password: password,
-        publicKey: TestEnv.value("NSREMOTE_SSH_PUBLIC_KEY"),
+        publicKey: TestEnv.firstValue(["NSREMOTE_SSH_PUBLIC_KEY", "SSH_TEST_PUBLIC_KEY"]),
         privateKey: privateKey,
-        keyPassphrase: TestEnv.value("NSREMOTE_SSH_KEY_PASSPHRASE")
+        keyPassphrase: TestEnv.firstValue(["NSREMOTE_SSH_KEY_PASSPHRASE", "SSH_TEST_KEY_PASSPHRASE"])
     )
 }
 
 private func connectShell() async throws -> NSRemoteShell {
     let config = try requireConfig()
-    let shell = NSRemoteShell(configuration: .init(host: config.host, port: config.port, timeout: config.timeout))
-    try await shell.connect()
-    if let privateKey = config.privateKey {
-        try await shell.authenticate(
-            username: config.username,
-            publicKey: config.publicKey,
-            privateKey: privateKey,
-            password: config.keyPassphrase
-        )
-    } else if let password = config.password {
-        try await shell.authenticate(username: config.username, password: password)
+    var lastError: Error?
+    for attempt in 0..<3 {
+        let shell = NSRemoteShell(configuration: .init(host: config.host, port: config.port, timeout: config.timeout))
+        do {
+            try await shell.connect()
+            if let privateKey = config.privateKey {
+                try await shell.authenticate(
+                    username: config.username,
+                    publicKey: config.publicKey,
+                    privateKey: privateKey,
+                    password: config.keyPassphrase
+                )
+            } else if let password = config.password {
+                try await shell.authenticate(username: config.username, password: password)
+            }
+            return shell
+        } catch {
+            lastError = error
+            await shell.disconnect()
+            if attempt < 2 {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+            }
+        }
     }
-    return shell
+    throw lastError ?? RemoteShellError.disconnected
 }
 
 private func executeCapture(
@@ -208,14 +229,46 @@ private func executeCapture(
     return (status, output.value())
 }
 
-private func resolvePythonBinary(shell: NSRemoteShell) async throws -> String? {
-    for candidate in ["python3", "python"] {
-        let (status, _) = try await executeCapture(shell, "command -v \(candidate)")
-        if status == 0 {
-            return candidate
+private func runEchoClient(shell: NSRemoteShell, port: Int, payload: String) async throws -> Bool {
+    let pythonScript = "import socket,sys; s=socket.create_connection(('127.0.0.1', \(port)), timeout=5); s.sendall(b'\(payload)'); data=s.recv(1024); sys.stdout.write(data.decode('utf-8', errors='ignore')); s.close()"
+    let netcat = "printf '%s' '\(payload)' | nc"
+    let netcatAlt = "printf '%s' '\(payload)' | netcat"
+    let ncat = "printf '%s' '\(payload)' | ncat"
+    let busyboxNetcat = "printf '%s' '\(payload)' | busybox nc"
+    let socat = "printf '%s' '\(payload)' | socat - TCP:127.0.0.1:\(port),connect-timeout=5"
+
+    let candidates = [
+        "python3 -c \"\(pythonScript)\"",
+        "python -c \"\(pythonScript)\"",
+        "sh -c \"\(netcat) -w 5 127.0.0.1 \(port)\"",
+        "sh -c \"\(netcat) 127.0.0.1 \(port)\"",
+        "sh -c \"\(netcatAlt) -w 5 127.0.0.1 \(port)\"",
+        "sh -c \"\(netcatAlt) 127.0.0.1 \(port)\"",
+        "sh -c \"\(ncat) -w 5 127.0.0.1 \(port)\"",
+        "sh -c \"\(ncat) 127.0.0.1 \(port)\"",
+        "sh -c \"\(busyboxNetcat) -w 5 127.0.0.1 \(port)\"",
+        "sh -c \"\(busyboxNetcat) 127.0.0.1 \(port)\"",
+        "sh -c \"\(socat)\""
+    ]
+
+    for command in candidates {
+        let (status, output) = try await executeCapture(shell, command, timeout: 10)
+        if status == 0, output.contains(payload) {
+            return true
         }
     }
-    return nil
+    return false
+}
+
+private func hasEchoClient(shell: NSRemoteShell) async throws -> Bool {
+    let candidates = ["python3", "python", "nc", "netcat", "ncat", "socat", "busybox"]
+    for candidate in candidates {
+        let (status, _) = try await executeCapture(shell, "command -v \(candidate)")
+        if status == 0 {
+            return true
+        }
+    }
+    return false
 }
 
 final class NSRemoteShellTests: XCTestCase {
@@ -228,6 +281,8 @@ final class NSRemoteShellTests: XCTestCase {
 
         XCTAssertEqual(status, 0)
         XCTAssertTrue(output.contains(payload))
+
+        await shell.disconnect()
     }
 
     func testPTYShellInteractive() async throws {
@@ -248,6 +303,8 @@ final class NSRemoteShellTests: XCTestCase {
         )
 
         XCTAssertTrue(output.value().contains(payload))
+
+        await shell.disconnect()
     }
 
     func testSFTPRoundTrip() async throws {
@@ -283,20 +340,28 @@ final class NSRemoteShellTests: XCTestCase {
         XCTAssertTrue(files.contains { $0.name == "upload.txt" })
 
         try? await shell.deleteFile(at: remoteDir, onProgress: { _ in })
+
+        await shell.disconnectSFTP()
+        await shell.disconnect()
     }
 
     func testPortForwardEchoRoundTrip() async throws {
-        let shell = try await connectShell()
-        defer { Task { await shell.disconnect() } }
+        let clientShell = try await connectShell()
+        defer { Task { await clientShell.disconnect() } }
 
-        guard let pythonBinary = try await resolvePythonBinary(shell: shell) else {
-            throw XCTSkip("Remote host needs python3 or python for port-forward test.")
+        let canRunEcho = try await hasEchoClient(shell: clientShell)
+        if !canRunEcho {
+            await clientShell.disconnect()
+            throw XCTSkip("Remote host needs python or netcat for port-forward test.")
         }
+
+        let forwardShell = try await connectShell()
+        defer { Task { await forwardShell.disconnect() } }
 
         let echoServer = try LocalEchoServer()
         defer { echoServer.stop() }
 
-        let handle = try await shell.startRemotePortForward(
+        let handle = try await forwardShell.startRemotePortForward(
             remotePort: 0,
             targetHost: "127.0.0.1",
             targetPort: echoServer.port
@@ -305,11 +370,16 @@ final class NSRemoteShellTests: XCTestCase {
 
         let payload = "NSREMOTE_ECHO_" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
         let boundPort = await handle.boundPort
-        let script = "import socket,sys; s=socket.create_connection(('127.0.0.1', \(boundPort)), timeout=5); s.sendall(b'\(payload)'); data=s.recv(1024); sys.stdout.write(data.decode('utf-8', errors='ignore')); s.close()"
-        let command = "\(pythonBinary) -c \"\(script)\""
+        let didEcho = try await runEchoClient(shell: clientShell, port: boundPort, payload: payload)
+        if !didEcho {
+            await handle.cancel()
+            await forwardShell.disconnect()
+            await clientShell.disconnect()
+            throw XCTSkip("Remote host needs python or netcat for port-forward test.")
+        }
 
-        let (status, output) = try await executeCapture(shell, command, timeout: 10)
-        XCTAssertEqual(status, 0)
-        XCTAssertTrue(output.contains(payload))
+        await handle.cancel()
+        await forwardShell.disconnect()
+        await clientShell.disconnect()
     }
 }

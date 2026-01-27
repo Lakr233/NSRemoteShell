@@ -460,8 +460,12 @@ private extension NSRemoteShell {
             }
             let readCount = try await readChannelBytes(session: session, channel: channel, buffer: &buffer, stderr: false, deadline: nil)
             if readCount > 0 {
-                handle.write(Data(buffer.prefix(readCount)))
-                received += UInt64(readCount)
+                let remaining = size - received
+                let clamped = min(UInt64(readCount), remaining)
+                if clamped > 0 {
+                    handle.write(Data(buffer.prefix(Int(clamped))))
+                    received += clamped
+                }
             }
 
             if lastProgress.timeIntervalSinceNow < -0.1 {
