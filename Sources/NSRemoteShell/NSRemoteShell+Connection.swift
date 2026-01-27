@@ -58,9 +58,12 @@ public extension NSRemoteShell {
         }
 
         if let session = session {
-            var message = "closed by client"
+            let message = "closed by client"
             message.withCString { cString in
-                _ = libssh2_session_disconnect(session.session, cString)
+                _ = libssh2_session_disconnect_ex(session.session,
+                                                  SSH_DISCONNECT_BY_APPLICATION,
+                                                  cString,
+                                                  "")
             }
             libssh2_session_free(session.session)
             SocketUtilities.closeSocket(session.socket)

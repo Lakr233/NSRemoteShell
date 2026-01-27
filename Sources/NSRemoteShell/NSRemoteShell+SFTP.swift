@@ -220,6 +220,16 @@ public extension NSRemoteShell {
     }
 }
 
+extension NSRemoteShell {
+    func closeSFTP(_ sftp: OpaquePointer) async -> Bool {
+        guard let session else { return false }
+        while libssh2_sftp_shutdown(sftp) == LIBSSH2_ERROR_EAGAIN {
+            try? await session.waitForSocket(deadline: Date().addingTimeInterval(configuration.timeout))
+        }
+        return true
+    }
+}
+
 private extension NSRemoteShell {
     func requireSFTP() throws -> (SSHSession, OpaquePointer) {
         guard let session else { throw RemoteShellError.disconnected }
@@ -244,14 +254,6 @@ private extension NSRemoteShell {
             lastFileTransferError = error.errorDescription
             throw error
         }
-    }
-
-    func closeSFTP(_ sftp: OpaquePointer) async -> Bool {
-        guard let session else { return false }
-        while libssh2_sftp_shutdown(sftp) == LIBSSH2_ERROR_EAGAIN {
-            try? await session.waitForSocket(deadline: Date().addingTimeInterval(configuration.timeout))
-        }
-        return true
     }
 
     func openSFTPHandle(

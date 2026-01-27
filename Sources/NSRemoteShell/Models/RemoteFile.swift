@@ -20,10 +20,12 @@ public struct RemoteFile: Hashable, Sendable {
         self.lastAccess = Date(timeIntervalSince1970: TimeInterval(attributes.atime))
         self.ownerUID = UInt(attributes.uid)
         self.ownerGID = UInt(attributes.gid)
-        self.permissionDescription = RemoteFile.permissionDescription(for: attributes.permissions)
-        self.isRegularFile = LIBSSH2_SFTP_S_ISREG(attributes.permissions) != 0
-        self.isDirectory = LIBSSH2_SFTP_S_ISDIR(attributes.permissions) != 0
-        self.isLink = LIBSSH2_SFTP_S_ISLNK(attributes.permissions) != 0
+        let mode = UInt32(attributes.permissions)
+        self.permissionDescription = RemoteFile.permissionDescription(for: UInt(mode))
+        let type = mode & RemoteFile.sftpTypeMask
+        self.isRegularFile = type == RemoteFile.sftpRegular
+        self.isDirectory = type == RemoteFile.sftpDirectory
+        self.isLink = type == RemoteFile.sftpLink
     }
 
     private static func permissionDescription(for mode: UInt) -> String {
@@ -55,4 +57,9 @@ public struct RemoteFile: Hashable, Sendable {
         if mode & UInt(S_IFMT) == UInt(S_IFSOCK) { return "s" }
         return "?"
     }
+
+    private static let sftpTypeMask: UInt32 = 0o170000
+    private static let sftpRegular: UInt32 = 0o100000
+    private static let sftpDirectory: UInt32 = 0o040000
+    private static let sftpLink: UInt32 = 0o120000
 }

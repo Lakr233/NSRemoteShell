@@ -36,8 +36,7 @@ enum RemoteShellError: Error, LocalizedError {
         var errorMessage: UnsafeMutablePointer<Int8>?
         var errorLength: Int32 = 0
         let errorCode = libssh2_session_last_error(session, &errorMessage, &errorLength, 0)
-        if let errorMessage {
-            let message = String(decoding: UnsafeBufferPointer(start: errorMessage, count: Int(errorLength)), as: UTF8.self)
+        if let errorMessage, let message = String(utf8String: errorMessage) {
             return .libssh2Error(code: errorCode, message: message)
         }
         return .libssh2Error(code: errorCode, message: fallback)

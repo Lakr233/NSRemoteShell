@@ -16,8 +16,15 @@ public extension NSRemoteShell {
         defer { closeChannel(channel) }
 
         let rc: Int32 = try await session.retrying(timeout: timeout ?? configuration.timeout, operation: {
-            command.withCString { cString in
-                libssh2_channel_exec(channel, cString)
+            let execName = "exec"
+            return execName.withCString { execPtr in
+                command.withCString { commandPtr in
+                    libssh2_channel_process_startup(channel,
+                                                    execPtr,
+                                                    UInt32(execName.utf8.count),
+                                                    commandPtr,
+                                                    UInt32(strlen(commandPtr)))
+                }
             }
         }, shouldRetry: { $0 == LIBSSH2_ERROR_EAGAIN })
         guard rc == 0 else {
@@ -98,7 +105,14 @@ public extension NSRemoteShell {
         }
 
         let shellRc: Int32 = try await session.retrying(timeout: configuration.timeout, operation: {
-            libssh2_channel_shell(channel)
+            let shellName = "shell"
+            return shellName.withCString { shellPtr in
+                libssh2_channel_process_startup(channel,
+                                                shellPtr,
+                                                UInt32(shellName.utf8.count),
+                                                nil,
+                                                0)
+            }
         }, shouldRetry: { $0 == LIBSSH2_ERROR_EAGAIN })
         guard shellRc == 0 else {
             let error = session.lastError(fallback: "Failed to open shell")
@@ -115,9 +129,11 @@ public extension NSRemoteShell {
             if size != lastTerminalSize {
                 lastTerminalSize = size
                 _ = try await session.retrying(timeout: configuration.timeout, operation: {
-                    libssh2_channel_request_pty_size(channel,
-                                                     UInt32(size.width),
-                                                     UInt32(size.height))
+                    libssh2_channel_request_pty_size_ex(channel,
+                                                        Int32(size.width),
+                                                        Int32(size.height),
+                                                        0,
+                                                        0)
                 }, shouldRetry: { $0 == LIBSSH2_ERROR_EAGAIN })
             }
 
@@ -149,9 +165,17 @@ private extension NSRemoteShell {
             if deadline.timeIntervalSinceNow <= 0 {
                 throw RemoteShellError.timeout
             }
-            if let channel = libssh2_channel_open_session(session.session) {
-                return channel
+            let sessionName = "session"
+            let channel = sessionName.withCString { namePtr in
+                libssh2_channel_open_ex(session.session,
+                                        namePtr,
+                                        UInt32(sessionName.utf8.count),
+                                        SSHConstants.channelWindowSize,
+                                        SSHConstants.channelPacketSize,
+                                        nil,
+                                        0)
             }
+            if let channel { return channel }
             let rc = libssh2_session_last_errno(session.session)
             if rc == LIBSSH2_ERROR_EAGAIN {
                 try await session.waitForSocket(deadline: deadline)

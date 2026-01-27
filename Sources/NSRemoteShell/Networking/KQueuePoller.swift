@@ -9,7 +9,7 @@ struct SocketEvents: OptionSet, Sendable {
 }
 
 enum KQueuePoller {
-    private typealias KEvent = kevent
+    private typealias KEvent = Darwin.kevent
 
     static func wait(socket: Int32, events: SocketEvents, timeout: TimeInterval?) throws -> Bool {
         let queue = kqueue()
@@ -50,7 +50,7 @@ enum KQueuePoller {
                 timeoutSpec.tv_nsec = Int((clamped - Double(timeoutSpec.tv_sec)) * 1_000_000_000)
                 return withUnsafePointer(to: &timeoutSpec) { $0 }
             }()
-            return kevent(queue, buffer.baseAddress, Int32(buffer.count), &outputEvent, 1, timeoutPtr)
+            return Darwin.kevent(queue, buffer.baseAddress, Int32(buffer.count), &outputEvent, 1, timeoutPtr)
         }
         if result == 0 {
             return false
