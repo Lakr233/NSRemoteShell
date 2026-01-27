@@ -371,7 +371,7 @@ func runLargeEchoClient(
     let deadline = Date().addingTimeInterval(timeout)
     var cancelled = false
 
-    while (sent < sizeBytes || received.count < sent) && !cancelled {
+    while sent < sizeBytes || received.count < sent, !cancelled {
         if deadline.timeIntervalSinceNow <= 0 {
             print("runLargeEchoClient: timeout sent=\(sent) received=\(received.count)")
             break

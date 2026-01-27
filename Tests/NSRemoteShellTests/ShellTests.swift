@@ -16,7 +16,7 @@ struct ShellTests {
             "stty size\n",
             "sleep 0.5\n",
             "stty size\n",
-            "exit\n"
+            "exit\n",
         ])
         let output = OutputBuffer()
         let deadline = Date().addingTimeInterval(10)
@@ -95,7 +95,7 @@ struct ShellTests {
 
         let ctrlCSent = AtomicBool(false)
         let input = InputQueue([
-            "while true; do echo running; sleep 0.2; done\n"
+            "while true; do echo running; sleep 0.2; done\n",
         ])
         let output = OutputBuffer()
         let deadline = Date().addingTimeInterval(10)
