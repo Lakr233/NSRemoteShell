@@ -1,9 +1,9 @@
-import Testing
-import Foundation
 import CoreGraphics
-import Dispatch
 import Darwin
+import Dispatch
+import Foundation
 @testable import NSRemoteShell
+import Testing
 
 private struct SSHTestConfig {
     let host: String
@@ -102,7 +102,7 @@ private final class LocalEchoServer: @unchecked Sendable {
             }
             if client < 0 {
                 if errno == EAGAIN || errno == EWOULDBLOCK {
-                    usleep(10_000)
+                    usleep(10000)
                     continue
                 }
                 let code = errno
@@ -137,7 +137,7 @@ private final class LocalEchoServer: @unchecked Sendable {
                         continue
                     }
                     if errno == EAGAIN || errno == EWOULDBLOCK {
-                        usleep(5_000)
+                        usleep(5000)
                         continue
                     }
                     let code = errno
@@ -150,8 +150,8 @@ private final class LocalEchoServer: @unchecked Sendable {
                 print("LocalEchoServer: client closed connection")
                 return
             }
-            if readCount < 0 && (errno == EAGAIN || errno == EWOULDBLOCK) {
-                usleep(5_000)
+            if readCount < 0, errno == EAGAIN || errno == EWOULDBLOCK {
+                usleep(5000)
                 continue
             }
             let code = errno
@@ -165,12 +165,12 @@ private final class LocalEchoServer: @unchecked Sendable {
         defer { lock.unlock() }
         return stopped
     }
-
 }
 
 private func requireConfig() -> SSHTestConfig? {
     guard let host = TestEnv.firstValue(["NSREMOTE_SSH_HOST", "SSH_TEST_HOST"]),
-          let username = TestEnv.firstValue(["NSREMOTE_SSH_USERNAME", "SSH_TEST_USER"]) else {
+          let username = TestEnv.firstValue(["NSREMOTE_SSH_USERNAME", "SSH_TEST_USER"])
+    else {
         print("Skipping SSH tests: set NSREMOTE_SSH_HOST/NSREMOTE_SSH_USERNAME (or SSH_TEST_HOST/SSH_TEST_USER).")
         return nil
     }
@@ -179,7 +179,7 @@ private func requireConfig() -> SSHTestConfig? {
     let timeout = Double(TestEnv.firstValue(["NSREMOTE_SSH_TIMEOUT", "SSH_TEST_TIMEOUT"]) ?? "") ?? 8
     let password = TestEnv.firstValue(["NSREMOTE_SSH_PASSWORD", "SSH_TEST_PASSWORD"])
     let privateKey = TestEnv.firstValue(["NSREMOTE_SSH_PRIVATE_KEY", "SSH_TEST_PRIVATE_KEY"])
-    if password == nil && privateKey == nil {
+    if password == nil, privateKey == nil {
         print("Skipping SSH tests: set NSREMOTE_SSH_PASSWORD or NSREMOTE_SSH_PRIVATE_KEY (or SSH_TEST_PASSWORD/SSH_TEST_PRIVATE_KEY).")
         return nil
     }
@@ -199,7 +199,7 @@ private func requireConfig() -> SSHTestConfig? {
 private func connectShell() async throws -> NSRemoteShell? {
     guard let config = requireConfig() else { return nil }
     var lastError: Error?
-    for attempt in 0..<3 {
+    for attempt in 0 ..< 3 {
         let shell = NSRemoteShell(configuration: .init(host: config.host, port: config.port, timeout: config.timeout))
         do {
             try await shell.connect()
@@ -297,7 +297,7 @@ private func runLocalEchoClient(port: Int, payload: String, timeout: TimeInterva
         }
         if readCount > 0 {
             print("runLocalEchoClient: received \(readCount) bytes")
-            received.append(contentsOf: buffer[0..<readCount])
+            received.append(contentsOf: buffer[0 ..< readCount])
             continue
         }
         if readCount == 0 {
@@ -327,7 +327,7 @@ private func runLocalEchoClient(port: Int, payload: String, timeout: TimeInterva
 @Suite
 struct NSRemoteShellTests {
     @Test
-    func testCommandExec() async throws {
+    func commandExec() async throws {
         print("testCommandExec: start")
         guard let shell = try await connectShell() else { return }
         defer { Task { await shell.disconnect() } }
@@ -344,7 +344,7 @@ struct NSRemoteShellTests {
     }
 
     @Test
-    func testPTYShellInteractive() async throws {
+    func pTYShellInteractive() async throws {
         print("testPTYShellInteractive: start")
         guard let shell = try await connectShell() else { return }
         defer { Task { await shell.disconnect() } }
@@ -369,7 +369,7 @@ struct NSRemoteShellTests {
     }
 
     @Test
-    func testSFTPRoundTrip() async throws {
+    func sFTPRoundTrip() async throws {
         print("testSFTPRoundTrip: start")
         guard let shell = try await connectShell() else { return }
         defer { Task { await shell.disconnect() } }
@@ -415,7 +415,7 @@ struct NSRemoteShellTests {
     }
 
     @Test
-    func testPortForwardEchoRoundTrip() async throws {
+    func portForwardEchoRoundTrip() async throws {
         let echoServer = try LocalEchoServer()
         defer { echoServer.stop() }
         print("testPortForwardEchoRoundTrip: echo server port \(echoServer.port)")

@@ -1,16 +1,16 @@
-import Foundation
 import CSSH2
 import Darwin
+import Foundation
 
 public extension NSRemoteShell {
     func connectSFTP() async throws {
         guard let session else { throw RemoteShellError.disconnected }
         guard isAuthenticated else { throw RemoteShellError.authenticationRequired }
-        if self.sftp != nil {
+        if sftp != nil {
             return
         }
         let sftpSession = try await openSFTP(session: session)
-        self.sftp = sftpSession
+        sftp = sftpSession
         isConnectedFileTransfer = true
     }
 
@@ -50,7 +50,7 @@ public extension NSRemoteShell {
             }
             if readCount > 0 {
                 let name = String(decoding: buffer.prefix(readCount), as: UTF8.self)
-                if name != "." && name != ".." {
+                if name != ".", name != ".." {
                     results.append(RemoteFile(name: name, attributes: attributes))
                 }
                 continue
@@ -102,7 +102,7 @@ public extension NSRemoteShell {
 
     func renameFile(at path: String, to newPath: String) async throws {
         let (session, sftp) = try requireSFTP()
-        guard path.hasPrefix("/") && newPath.hasPrefix("/") else {
+        guard path.hasPrefix("/"), newPath.hasPrefix("/") else {
             throw RemoteShellError.invalidConfiguration("SFTP rename requires absolute paths")
         }
         let deadline = Date().addingTimeInterval(configuration.timeout)

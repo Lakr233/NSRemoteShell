@@ -1,5 +1,5 @@
-import Foundation
 import CSSH2
+import Foundation
 
 public struct RemoteFile: Hashable, Sendable {
     public let name: String
@@ -15,17 +15,17 @@ public struct RemoteFile: Hashable, Sendable {
 
     init(name: String, attributes: LIBSSH2_SFTP_ATTRIBUTES) {
         self.name = name
-        self.size = attributes.filesize
-        self.modificationDate = Date(timeIntervalSince1970: TimeInterval(attributes.mtime))
-        self.lastAccess = Date(timeIntervalSince1970: TimeInterval(attributes.atime))
-        self.ownerUID = UInt(attributes.uid)
-        self.ownerGID = UInt(attributes.gid)
+        size = attributes.filesize
+        modificationDate = Date(timeIntervalSince1970: TimeInterval(attributes.mtime))
+        lastAccess = Date(timeIntervalSince1970: TimeInterval(attributes.atime))
+        ownerUID = UInt(attributes.uid)
+        ownerGID = UInt(attributes.gid)
         let mode = UInt32(attributes.permissions)
-        self.permissionDescription = RemoteFile.permissionDescription(for: UInt(mode))
+        permissionDescription = RemoteFile.permissionDescription(for: UInt(mode))
         let type = mode & RemoteFile.sftpTypeMask
-        self.isRegularFile = type == RemoteFile.sftpRegular
-        self.isDirectory = type == RemoteFile.sftpDirectory
-        self.isLink = type == RemoteFile.sftpLink
+        isRegularFile = type == RemoteFile.sftpRegular
+        isDirectory = type == RemoteFile.sftpDirectory
+        isLink = type == RemoteFile.sftpLink
     }
 
     private static func permissionDescription(for mode: UInt) -> String {
@@ -37,9 +37,15 @@ public struct RemoteFile: Hashable, Sendable {
         let group = rwx[Int((mode >> 3) & 7)]
         let other = rwx[Int(mode & 7)]
 
-        for (index, char) in owner.enumerated() { bits[1 + index] = char }
-        for (index, char) in group.enumerated() { bits[4 + index] = char }
-        for (index, char) in other.enumerated() { bits[7 + index] = char }
+        for (index, char) in owner.enumerated() {
+            bits[1 + index] = char
+        }
+        for (index, char) in group.enumerated() {
+            bits[4 + index] = char
+        }
+        for (index, char) in other.enumerated() {
+            bits[7 + index] = char
+        }
 
         if mode & UInt(S_ISUID) != 0 { bits[3] = (mode & 0o100) != 0 ? "s" : "S" }
         if mode & UInt(S_ISGID) != 0 { bits[6] = (mode & 0o010) != 0 ? "s" : "l" }

@@ -1,5 +1,5 @@
-import Foundation
 import CSSH2
+import Foundation
 
 private func forwardLog(_ message: String) {
     if ProcessInfo.processInfo.environment["NSREMOTE_FORWARD_DEBUG"] == "1" {
@@ -27,7 +27,7 @@ public extension NSRemoteShell {
         let id = UUID()
         let task = Task { [weak self] in
             guard let self else { return }
-            await self.runLocalForward(
+            await runLocalForward(
                 session: session,
                 listenSocket: listenSocket,
                 localPort: boundPort,
@@ -53,7 +53,7 @@ public extension NSRemoteShell {
         let id = UUID()
         let task = Task { [weak self] in
             guard let self else { return }
-            await self.runRemoteForward(
+            await runRemoteForward(
                 session: session,
                 listener: listener,
                 targetHost: targetHost,
@@ -88,7 +88,7 @@ private extension NSRemoteShell {
     ) async {
         defer { SocketUtilities.closeSocket(listenSocket) }
         while await !state.isCancelled(), shouldContinue(), isConnected {
-            let ready = (try? await KQueuePoller.waitAsync(socket: listenSocket, events: [.read], timeout: 1)) ?? false
+            let ready = await (try? KQueuePoller.waitAsync(socket: listenSocket, events: [.read], timeout: 1)) ?? false
             if !ready {
                 continue
             }
@@ -261,7 +261,7 @@ private extension NSRemoteShell {
         await withTaskGroup(of: Void.self) { group in
             group.addTask { [weak self] in
                 guard let self else { return }
-                await self.pumpSocketToChannel(
+                await pumpSocketToChannel(
                     session: session,
                     channel: channel,
                     socket: socket,
@@ -271,7 +271,7 @@ private extension NSRemoteShell {
             }
             group.addTask { [weak self] in
                 guard let self else { return }
-                await self.pumpChannelToSocket(
+                await pumpChannelToSocket(
                     session: session,
                     channel: channel,
                     socket: socket,

@@ -1,9 +1,9 @@
-import Foundation
 import Darwin
+import Foundation
 
 enum SocketUtilities {
     static func isValidPort(_ port: Int) -> Bool {
-        port >= 0 && port <= 65_535
+        port >= 0 && port <= 65535
     }
 
     static func createListener(on port: Int) throws -> Int32 {

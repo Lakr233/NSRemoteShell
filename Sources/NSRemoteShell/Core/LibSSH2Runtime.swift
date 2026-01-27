@@ -1,5 +1,5 @@
-import Foundation
 import CSSH2
+import Foundation
 
 enum LibSSH2Runtime {
     private static var initialized = false
@@ -13,7 +13,7 @@ enum LibSSH2Runtime {
         }
         initialized = true
         #if os(macOS)
-        activity = ProcessInfo.processInfo.beginActivity(options: [.latencyCritical], reason: "NSRemoteShell active")
+            activity = ProcessInfo.processInfo.beginActivity(options: [.latencyCritical], reason: "NSRemoteShell active")
         #endif
     }
 
@@ -22,10 +22,10 @@ enum LibSSH2Runtime {
         libssh2_exit()
         initialized = false
         #if os(macOS)
-        if let activity {
-            ProcessInfo.processInfo.endActivity(activity)
-        }
-        activity = nil
+            if let activity {
+                ProcessInfo.processInfo.endActivity(activity)
+            }
+            activity = nil
         #endif
     }
 }

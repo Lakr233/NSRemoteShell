@@ -1,5 +1,5 @@
-import Foundation
 import CSSH2
+import Foundation
 
 public extension NSRemoteShell {
     func connect() async throws {
@@ -57,7 +57,7 @@ public extension NSRemoteShell {
             self.sftp = nil
         }
 
-        if let session = session {
+        if let session {
             let message = "closed by client"
             message.withCString { cString in
                 _ = libssh2_session_disconnect_ex(session.session,
@@ -119,7 +119,7 @@ private extension NSRemoteShell {
             guard let self else { return }
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: UInt64(SSHConstants.keepAliveInterval * 1_000_000_000))
-                await self.sendKeepAlive()
+                await sendKeepAlive()
             }
         }
     }
@@ -127,7 +127,7 @@ private extension NSRemoteShell {
     func sendKeepAlive() async {
         guard let session, isConnected else { return }
         var nextInterval: Int32 = 0
-        let rc: Int32 = (try? await session.retrying(timeout: configuration.timeout, operation: {
+        let rc: Int32 = await (try? session.retrying(timeout: configuration.timeout, operation: {
             libssh2_keepalive_send(session.session, &nextInterval)
         }, shouldRetry: { $0 == LIBSSH2_ERROR_EAGAIN })) ?? -1
 
@@ -147,7 +147,7 @@ private extension NSRemoteShell {
             return nil
         }
         var output = ""
-        for index in 0..<20 {
+        for index in 0 ..< 20 {
             output += String(format: "%02x", hash[index])
         }
         return output

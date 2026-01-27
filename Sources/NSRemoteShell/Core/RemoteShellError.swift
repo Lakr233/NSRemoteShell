@@ -1,5 +1,5 @@
-import Foundation
 import CSSH2
+import Foundation
 
 enum RemoteShellError: Error, LocalizedError {
     case notInitialized
@@ -14,21 +14,21 @@ enum RemoteShellError: Error, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .notInitialized:
-            return "libssh2 initialization failed"
-        case .invalidConfiguration(let message):
-            return message
-        case .socketError(let code, let message):
-            return "Socket error (\(code)): \(message)"
-        case .libssh2Error(let code, let message):
-            return "libssh2 error (\(code)): \(message)"
+            "libssh2 initialization failed"
+        case let .invalidConfiguration(message):
+            message
+        case let .socketError(code, message):
+            "Socket error (\(code)): \(message)"
+        case let .libssh2Error(code, message):
+            "libssh2 error (\(code)): \(message)"
         case .timeout:
-            return "Operation timed out"
+            "Operation timed out"
         case .disconnected:
-            return "Session is disconnected"
+            "Session is disconnected"
         case .authenticationRequired:
-            return "Authentication required"
+            "Authentication required"
         case .fileTransferUnavailable:
-            return "File transfer session is not connected"
+            "File transfer session is not connected"
         }
     }
 

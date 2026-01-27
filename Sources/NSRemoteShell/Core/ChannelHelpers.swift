@@ -1,5 +1,5 @@
-import Foundation
 import CSSH2
+import Foundation
 
 extension NSRemoteShell {
     func readChannelBytes(

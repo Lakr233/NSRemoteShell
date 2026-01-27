@@ -1,6 +1,6 @@
-import Foundation
 import CoreGraphics
 import CSSH2
+import Foundation
 
 public extension NSRemoteShell {
     @discardableResult

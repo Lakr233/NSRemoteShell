@@ -9,5 +9,5 @@ enum SSHConstants {
     static let sftpRecursiveDepth = 32
     static let socketQueueSize = 16
     static let channelWindowSize: UInt32 = 2 * 1024 * 1024
-    static let channelPacketSize: UInt32 = 32_768
+    static let channelPacketSize: UInt32 = 32768
 }

@@ -1,6 +1,6 @@
-import Foundation
 import CoreGraphics
 import CSSH2
+import Foundation
 
 public actor NSRemoteShell {
     public struct Configuration: Sendable {
@@ -39,7 +39,7 @@ public actor NSRemoteShell {
     }
 
     public init(host: String, port: Int = 22, timeout: TimeInterval = 8) {
-        self.configuration = Configuration(host: host, port: port, timeout: timeout)
+        configuration = Configuration(host: host, port: port, timeout: timeout)
     }
 
     public func updateConfiguration(_ update: (inout Configuration) -> Void) {

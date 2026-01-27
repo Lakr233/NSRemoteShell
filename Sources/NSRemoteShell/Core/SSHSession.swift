@@ -1,5 +1,5 @@
-import Foundation
 import CSSH2
+import Foundation
 
 final class SSHSession {
     let session: OpaquePointer

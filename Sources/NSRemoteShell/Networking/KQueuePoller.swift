@@ -1,5 +1,5 @@
-import Foundation
 import Dispatch
+import Foundation
 
 struct SocketEvents: OptionSet, Sendable {
     let rawValue: Int
