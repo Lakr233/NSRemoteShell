@@ -87,8 +87,8 @@ private extension NSRemoteShell {
         shouldContinue: @Sendable @escaping () -> Bool
     ) async {
         defer { SocketUtilities.closeSocket(listenSocket) }
-        while await !state.isCancelled(), shouldContinue(), isConnected {
-            let ready = await (try? KQueuePoller.waitAsync(socket: listenSocket, events: [.read], timeout: 1)) ?? false
+        while await !state.isCancelled(), shouldContinue(), isConnected, !Task.isCancelled {
+            let ready = await (try? KQueuePoller.waitAsync(socket: listenSocket, events: [.read], timeout: SSHConstants.socketWaitSlice)) ?? false
             if !ready {
                 continue
             }
@@ -142,7 +142,7 @@ private extension NSRemoteShell {
             while session.withLock({ libssh2_channel_forward_cancel(listener) }) == LIBSSH2_ERROR_EAGAIN {}
         }
 
-        while await !state.isCancelled(), shouldContinue(), isConnected {
+        while await !state.isCancelled(), shouldContinue(), isConnected, !Task.isCancelled {
             guard let channel = await acceptRemoteChannel(session: session, listener: listener) else {
                 continue
             }
@@ -196,6 +196,9 @@ private extension NSRemoteShell {
     func acceptRemoteChannel(session: SSHSession, listener: OpaquePointer) async -> OpaquePointer? {
         let deadline = Date().addingTimeInterval(configuration.timeout)
         while true {
+            if Task.isCancelled {
+                return nil
+            }
             if deadline.timeIntervalSinceNow <= 0 {
                 return nil
             }
@@ -292,7 +295,7 @@ private extension NSRemoteShell {
         shouldContinue: @Sendable @escaping () -> Bool
     ) async {
         var buffer = [UInt8](repeating: 0, count: SSHConstants.bufferSize)
-        while await !state.isCancelled(), shouldContinue(), isConnected {
+        while await !state.isCancelled(), shouldContinue(), isConnected, !Task.isCancelled {
             let recvCount = buffer.withUnsafeMutableBytes { raw in
                 recv(socket, raw.baseAddress, raw.count, 0)
             }
@@ -312,7 +315,7 @@ private extension NSRemoteShell {
             }
             let code = errno
             if code == EAGAIN || code == EWOULDBLOCK {
-                _ = try? await KQueuePoller.waitAsync(socket: socket, events: [.read], timeout: 1)
+                _ = try? await KQueuePoller.waitAsync(socket: socket, events: [.read], timeout: SSHConstants.socketWaitSlice)
                 continue
             }
             forwardLog("socket recv failed errno=\(code) message=\(String(cString: strerror(code)))")
@@ -328,7 +331,7 @@ private extension NSRemoteShell {
         shouldContinue: @Sendable @escaping () -> Bool
     ) async {
         var buffer = [UInt8](repeating: 0, count: SSHConstants.bufferSize)
-        while await !state.isCancelled(), shouldContinue(), isConnected {
+        while await !state.isCancelled(), shouldContinue(), isConnected, !Task.isCancelled {
             do {
                 let channelRead = try await readChannelBytes(
                     session: session,
@@ -351,7 +354,7 @@ private extension NSRemoteShell {
                         }
                         let code = errno
                         if code == EAGAIN || code == EWOULDBLOCK {
-                            _ = try await KQueuePoller.waitAsync(socket: socket, events: [.write], timeout: nil)
+                            _ = try await KQueuePoller.waitAsync(socket: socket, events: [.write], timeout: SSHConstants.socketWaitSlice)
                             continue
                         }
                         forwardLog("channel->socket send failed errno=\(code) message=\(String(cString: strerror(code)))")

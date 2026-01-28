@@ -30,19 +30,29 @@ final class SSHSession {
         }
         events.insert(.read)
 
-        let remaining = deadline?.timeIntervalSinceNow
-        if let remaining, remaining <= 0 {
-            throw RemoteShellError.timeout
-        }
-        let ready = try await KQueuePoller.waitAsync(socket: socket, events: events, timeout: remaining)
-        if !ready {
-            throw RemoteShellError.timeout
+        while true {
+            try Task.checkCancellation()
+            let remaining = deadline?.timeIntervalSinceNow
+            if let remaining, remaining <= 0 {
+                throw RemoteShellError.timeout
+            }
+            let waitInterval: TimeInterval
+            if let remaining {
+                waitInterval = min(remaining, SSHConstants.socketWaitSlice)
+            } else {
+                waitInterval = SSHConstants.socketWaitSlice
+            }
+            let ready = try await KQueuePoller.waitAsync(socket: socket, events: events, timeout: waitInterval)
+            if ready {
+                return
+            }
         }
     }
 
     func retrying<T>(timeout: TimeInterval?, operation: () -> T, shouldRetry: (T) -> Bool) async throws -> T {
         let deadline = timeout.map { Date().addingTimeInterval($0) }
         while true {
+            try Task.checkCancellation()
             let result = withLock { operation() }
             if shouldRetry(result) {
                 try await waitForSocket(deadline: deadline)

@@ -243,6 +243,9 @@ extension NSRemoteShell {
     func closeSFTP(_ sftp: OpaquePointer) async -> Bool {
         guard let session else { return false }
         while libssh2_sftp_shutdown(sftp) == LIBSSH2_ERROR_EAGAIN {
+            if Task.isCancelled {
+                return false
+            }
             try? await session.waitForSocket(deadline: Date().addingTimeInterval(configuration.timeout))
         }
         return true

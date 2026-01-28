@@ -39,6 +39,7 @@ public extension NSRemoteShell {
         let deadline = timeout.map { Date().addingTimeInterval($0) }
 
         while true {
+            try Task.checkCancellation()
             if let deadline, deadline.timeIntervalSinceNow <= 0 {
                 break
             }
@@ -125,6 +126,7 @@ public extension NSRemoteShell {
         var buffer = [UInt8](repeating: 0, count: SSHConstants.bufferSize)
 
         while shouldContinue() {
+            try Task.checkCancellation()
             let size = terminalSize()
             if size != lastTerminalSize {
                 lastTerminalSize = size

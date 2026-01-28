@@ -10,6 +10,7 @@ struct SocketEvents: OptionSet, Sendable {
 
 enum KQueuePoller {
     static func waitAsync(socket: Int32, events: SocketEvents, timeout: TimeInterval?) async throws -> Bool {
+        try Task.checkCancellation()
         guard !events.isEmpty else { return false }
         return try await withCheckedThrowingContinuation { continuation in
             let queue = DispatchQueue.global(qos: .utility)

@@ -10,6 +10,7 @@ extension NSRemoteShell {
         deadline: Date?
     ) async throws -> Int {
         while true {
+            try Task.checkCancellation()
             let count: Int = session.withLock {
                 buffer.withUnsafeMutableBytes { raw in
                     let ptr = raw.bindMemory(to: Int8.self).baseAddress
@@ -62,6 +63,7 @@ extension NSRemoteShell {
     ) async throws {
         var sent = 0
         while sent < count {
+            try Task.checkCancellation()
             let written = session.withLock {
                 buffer.withUnsafeBytes { raw in
                     let ptr = raw.bindMemory(to: Int8.self).baseAddress
