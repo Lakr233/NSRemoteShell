@@ -1,4 +1,4 @@
-# Cancellable Socket Waits + Test Robustness (2026-01-29)
+# 2026-01-29 - Cancellable Socket Waits + Test Robustness
 
 ## What we did
 - Set up a local SSH test environment (sshd on 127.0.0.1:2222 with generated host/client keys) to run integration tests deterministically.
