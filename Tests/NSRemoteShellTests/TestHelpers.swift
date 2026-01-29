@@ -90,6 +90,41 @@ func connectShell() async throws -> NSRemoteShell? {
     throw lastError ?? RemoteShellError.disconnected
 }
 
+func withConnectedShell<T>(_ operation: @Sendable (NSRemoteShell) async throws -> T) async throws -> T? {
+    guard let shell = try await connectShell() else { return nil }
+    do {
+        let result = try await operation(shell)
+        await shell.disconnect()
+        return result
+    } catch {
+        await shell.disconnect()
+        throw error
+    }
+}
+
+func withSFTP<T>(shell: NSRemoteShell, _ operation: @Sendable () async throws -> T) async throws -> T {
+    try await shell.connectSFTP()
+    do {
+        let result = try await operation()
+        await shell.disconnectSFTP()
+        return result
+    } catch {
+        await shell.disconnectSFTP()
+        throw error
+    }
+}
+
+func withPortForwardHandle<T>(_ handle: PortForwardHandle, _ operation: @Sendable () async throws -> T) async rethrows -> T {
+    do {
+        let result = try await operation()
+        await handle.cancel()
+        return result
+    } catch {
+        await handle.cancel()
+        throw error
+    }
+}
+
 func executeCapture(
     _ shell: NSRemoteShell,
     _ command: String,
@@ -98,6 +133,49 @@ func executeCapture(
     let output = OutputBuffer()
     let status = try await shell.execute(command, timeout: timeout, onOutput: { output.append($0) })
     return (status, output.value())
+}
+
+// MARK: - Serial Test Gate
+
+final class SerialTestGate: @unchecked Sendable {
+    static let shared = SerialTestGate()
+    private let lock = NSLock()
+    private var isLocked = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    private init() {}
+
+    func acquire() async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if isLocked {
+                waiters.append(continuation)
+                lock.unlock()
+            } else {
+                isLocked = true
+                lock.unlock()
+                continuation.resume()
+            }
+        }
+    }
+
+    func release() {
+        lock.lock()
+        if waiters.isEmpty {
+            isLocked = false
+            lock.unlock()
+            return
+        }
+        let continuation = waiters.removeFirst()
+        lock.unlock()
+        continuation.resume()
+    }
+}
+
+func withSerialTestLock<T>(_ operation: @Sendable () async throws -> T) async rethrows -> T {
+    await SerialTestGate.shared.acquire()
+    defer { SerialTestGate.shared.release() }
+    return try await operation()
 }
 
 // MARK: - Thread-Safe Helpers
@@ -183,6 +261,12 @@ final class AtomicInt: @unchecked Sendable {
         return value
     }
 
+    func set(_ newValue: Int) {
+        lock.lock()
+        value = newValue
+        lock.unlock()
+    }
+
     func increment() -> Int {
         lock.lock()
         defer { lock.unlock() }
@@ -260,6 +344,7 @@ final class LocalEchoServer: @unchecked Sendable {
 
     private func run() {
         defer { SocketUtilities.closeSocket(socket) }
+        var transientFailures = 0
         while !isStopped() {
             var address = sockaddr_storage()
             var length = socklen_t(MemoryLayout<sockaddr_storage>.size)
@@ -273,10 +358,18 @@ final class LocalEchoServer: @unchecked Sendable {
                     usleep(10000)
                     continue
                 }
+                if errno == EINTR || errno == EINVAL {
+                    transientFailures += 1
+                    if transientFailures < 5 {
+                        usleep(10000)
+                        continue
+                    }
+                }
                 let code = errno
                 print("LocalEchoServer: accept failed errno=\(code) message=\(errnoMessage(code))")
                 break
             }
+            transientFailures = 0
             print("LocalEchoServer: accepted connection")
             _ = try? SocketUtilities.setNonBlocking(client)
             if multiClient {

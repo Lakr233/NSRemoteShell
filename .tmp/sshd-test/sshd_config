@@ -1,0 +1,18 @@
+Port 2222
+ListenAddress 127.0.0.1
+HostKey /Users/admin/projects/.tmp/sshd-test/ssh_host_ed25519_key
+HostKey /Users/admin/projects/.tmp/sshd-test/ssh_host_rsa_key
+PidFile /Users/admin/projects/.tmp/sshd-test/sshd.pid
+AuthorizedKeysFile /Users/admin/projects/.tmp/sshd-test/authorized_keys
+PasswordAuthentication no
+PubkeyAuthentication yes
+ChallengeResponseAuthentication no
+UsePAM no
+PermitRootLogin no
+AllowUsers admin
+AllowTcpForwarding yes
+PermitTTY yes
+X11Forwarding no
+Subsystem sftp /usr/libexec/sftp-server
+LogLevel VERBOSE
+StrictModes yes
